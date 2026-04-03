@@ -14,36 +14,6 @@ import (
 	"backend/internal/domain/services"
 )
 
-func TestValidateCreateUserBusinessRules_LocalRequiresValidExpiry(t *testing.T) {
-	t.Parallel()
-
-	cmd := &commands.CreateUser{
-		Username:       "local.user",
-		Email:          "local.user@example.com",
-		FirstName:      "Local",
-		LastName:       "User",
-		IdentitySource: "local",
-		Attributes: map[string]string{
-			"fullName":      "Local User",
-			"userType":      "partner",
-			"companyName":   "TEST",
-			"userExpiryVPN": "2026-04-20",
-		},
-	}
-
-	err := validateCreateUserBusinessRules(cmd)
-	if err == nil {
-		t.Fatalf("expected error, got nil")
-	}
-	de, ok := err.(*domainerr.DomainError)
-	if !ok {
-		t.Fatalf("expected domain error, got %T", err)
-	}
-	if got := de.Details["attributes.userExpiryVPN"]; got != "must be a valid date in dd/MM/yyyy" {
-		t.Fatalf("expected expiry detail, got %#v", de.Details)
-	}
-}
-
 func TestValidateCreateUserBusinessRules_LocalNormalizesAndForcesTemporary(t *testing.T) {
 	t.Parallel()
 
@@ -57,10 +27,9 @@ func TestValidateCreateUserBusinessRules_LocalNormalizesAndForcesTemporary(t *te
 		Groups:            []string{"  /vpn/local  ", "   "},
 		RequiredActions:   []string{" UPDATE_PASSWORD ", " "},
 		Attributes: map[string]string{
-			"fullName":      " Local User ",
-			"userType":      " partner ",
-			"companyName":   " TEST ",
-			"userExpiryVPN": " 20/04/2026 ",
+			"fullName":    " Local User ",
+			"userType":    " partner ",
+			"companyName": " TEST ",
 		},
 	}
 
@@ -73,39 +42,11 @@ func TestValidateCreateUserBusinessRules_LocalNormalizesAndForcesTemporary(t *te
 	if cmd.IdentitySource != "local" {
 		t.Fatalf("expected normalized identity source, got %q", cmd.IdentitySource)
 	}
-	if got := cmd.Attributes["userExpiryVPN"]; got != "20/04/2026" {
-		t.Fatalf("expected normalized expiry date, got %q", got)
-	}
 	if len(cmd.Groups) != 1 || cmd.Groups[0] != "/vpn/local" {
 		t.Fatalf("expected normalized groups, got %#v", cmd.Groups)
 	}
 	if len(cmd.RequiredActions) != 1 || cmd.RequiredActions[0] != "UPDATE_PASSWORD" {
 		t.Fatalf("expected normalized required actions, got %#v", cmd.RequiredActions)
-	}
-}
-
-func TestValidateCreateUserBusinessRules_KeepsExpiryMetadataWhenProvided(t *testing.T) {
-	t.Parallel()
-
-	cmd := &commands.CreateUser{
-		Username:       "local.user",
-		Email:          "local.user@example.com",
-		FirstName:      "Local",
-		LastName:       "User",
-		IdentitySource: "local",
-		Attributes: map[string]string{
-			"fullName":      "Local User",
-			"userType":      "partner",
-			"companyName":   "TEST",
-			"userExpiryVPN": "20/04/2026",
-		},
-	}
-
-	if err := validateCreateUserBusinessRules(cmd); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got := cmd.Attributes["userExpiryVPN"]; got != "20/04/2026" {
-		t.Fatalf("expected userExpiryVPN to be preserved, got %q", got)
 	}
 }
 
@@ -481,6 +422,87 @@ func TestUserServiceUpdateEnabledSendsStatusNotification(t *testing.T) {
 	}
 	if got := mailer.calls[0].Template; got != "user_status_changed" {
 		t.Fatalf("unexpected template: %q", got)
+	}
+}
+
+func TestUserServiceUpdateSupportsKeycloakStyleUserRepresentationFields(t *testing.T) {
+	t.Parallel()
+
+	var captured services.KeycloakUser
+	keycloak := &fakeKeycloakIdentityService{
+		getUserFn: func(context.Context, string) (services.KeycloakUser, error) {
+			return services.KeycloakUser{
+				ID:              "user-1",
+				Username:        "alice",
+				Email:           "alice@example.com",
+				DisplayName:     "User Alice",
+				FirstName:       "Alice",
+				LastName:        "User",
+				Enabled:         true,
+				EmailVerified:   false,
+				RequiredActions: []string{"VERIFY_EMAIL"},
+				Attributes: map[string]string{
+					"fullName": "User Alice",
+				},
+			}, nil
+		},
+		updateUserFn: func(_ context.Context, _ string, req services.KeycloakUser) (services.KeycloakUser, error) {
+			captured = req
+			return req, nil
+		},
+	}
+
+	svc := NewUserService(validator.New(), keycloak, nil)
+	_, err := svc.Update(context.Background(), "user-1", commands.UpdateUser{
+		Username:      func() *string { v := "alice.new"; return &v }(),
+		Email:         func() *string { v := "alice.new@example.com"; return &v }(),
+		FirstName:     func() *string { v := " Alice "; return &v }(),
+		LastName:      func() *string { v := " Nguyen "; return &v }(),
+		Enabled:       func() *bool { v := false; return &v }(),
+		EmailVerified: func() *bool { v := true; return &v }(),
+		RequiredActions: &[]string{
+			" UPDATE_PASSWORD ",
+			"",
+		},
+		Attributes: &map[string]string{
+			"onboard":      "15/04/2026",
+			"work_address": "Tòa nhà MobiFone, Hà Nội",
+			"fullName":     " Alice Nguyen ",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := captured.Username; got != "alice.new" {
+		t.Fatalf("unexpected username: %q", got)
+	}
+	if got := captured.Email; got != "alice.new@example.com" {
+		t.Fatalf("unexpected email: %q", got)
+	}
+	if got := captured.FirstName; got != "Alice" {
+		t.Fatalf("unexpected firstName: %q", got)
+	}
+	if got := captured.LastName; got != "Nguyen" {
+		t.Fatalf("unexpected lastName: %q", got)
+	}
+	if captured.Enabled {
+		t.Fatalf("expected enabled=false")
+	}
+	if !captured.EmailVerified {
+		t.Fatalf("expected emailVerified=true")
+	}
+	if len(captured.RequiredActions) != 1 || captured.RequiredActions[0] != "UPDATE_PASSWORD" {
+		t.Fatalf("unexpected required actions: %#v", captured.RequiredActions)
+	}
+	if got := captured.Attributes["onboardDate"]; got != "15/04/2026" {
+		t.Fatalf("unexpected onboardDate: %q", got)
+	}
+	if got := captured.Attributes["workAddress"]; got != "Tòa nhà MobiFone, Hà Nội" {
+		t.Fatalf("unexpected workAddress: %q", got)
+	}
+	if got := captured.Attributes["fullName"]; got != "Alice Nguyen" {
+		t.Fatalf("unexpected fullName: %q", got)
 	}
 }
 

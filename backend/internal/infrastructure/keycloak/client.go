@@ -27,7 +27,6 @@ type Client struct {
 	realm             string
 	http              *http.Client
 	timeout           time.Duration
-	vpnEventClientID  string
 	lookupConcurrency int
 	ldapComponentID   string
 	componentLockFile string
@@ -47,7 +46,6 @@ func New(cfg config.KeycloakConfig) *Client {
 		realm:             cfg.Realm,
 		http:              hc,
 		timeout:           cfg.Timeout,
-		vpnEventClientID:  strings.TrimSpace(cfg.VPNEventClientID),
 		lookupConcurrency: cfg.LookupConcurrency,
 		ldapComponentID:   strings.TrimSpace(cfg.LDAPComponentID),
 		componentLockFile: strings.TrimSpace(cfg.ComponentLockFile),
@@ -93,12 +91,6 @@ type keycloakComponentPayload struct {
 	ParentID     string              `json:"parentId,omitempty"`
 	SubType      string              `json:"subType,omitempty"`
 	Config       map[string][]string `json:"config,omitempty"`
-}
-
-type keycloakEventPayload struct {
-	Time     int64             `json:"time"`
-	ClientID string            `json:"clientId"`
-	Details  map[string]string `json:"details"`
 }
 
 func (c *Client) adminURL(parts ...string) string {
@@ -467,6 +459,12 @@ func (c *Client) UpdateUser(ctx context.Context, id string, req services.Keycloa
 		"emailVerified": req.EmailVerified,
 		"firstName":     first,
 		"lastName":      last,
+		"requiredActions": func() []string {
+			if req.RequiredActions == nil {
+				return []string{}
+			}
+			return req.RequiredActions
+		}(),
 	}
 	if attrs := attributesToKeycloak(req.Attributes); attrs != nil {
 		payload["attributes"] = attrs
@@ -527,27 +525,19 @@ func (c *Client) getUser(ctx context.Context, id string, strictGroups bool) (ser
 		}
 		groups = nil
 	}
-	lastVPNLoginAt, err := c.fetchUserLastVPNLoginAt(ctx, id)
-	lastVPNLoginLookupFailed := false
-	if err != nil {
-		lastVPNLoginAt = ""
-		lastVPNLoginLookupFailed = true
-	}
 
 	return services.KeycloakUser{
-		ID:                       u.ID,
-		Username:                 u.Username,
-		Email:                    u.Email,
-		DisplayName:              joinDisplayName(u.FirstName, u.LastName),
-		FirstName:                u.FirstName,
-		LastName:                 u.LastName,
-		Enabled:                  u.Enabled,
-		EmailVerified:            u.EmailVerified,
-		RequiredActions:          u.RequiredActions,
-		Attributes:               attributesFromKeycloak(u.Attributes),
-		Groups:                   groups,
-		LastVPNLoginAt:           lastVPNLoginAt,
-		LastVPNLoginLookupFailed: lastVPNLoginLookupFailed,
+		ID:              u.ID,
+		Username:        u.Username,
+		Email:           u.Email,
+		DisplayName:     joinDisplayName(u.FirstName, u.LastName),
+		FirstName:       u.FirstName,
+		LastName:        u.LastName,
+		Enabled:         u.Enabled,
+		EmailVerified:   u.EmailVerified,
+		RequiredActions: u.RequiredActions,
+		Attributes:      attributesFromKeycloak(u.Attributes),
+		Groups:          groups,
 	}, nil
 }
 
@@ -560,23 +550,20 @@ func (c *Client) SearchUsers(ctx context.Context, q string, first, max int) ([]s
 	if err != nil {
 		return nil, err
 	}
-	lastVPNLoginMap, lastVPNLoginFailed := c.fetchUserLastVPNLoginBatch(ctx, arr)
 	out := make([]services.KeycloakUser, 0, len(arr))
 	for _, u := range arr {
 		out = append(out, services.KeycloakUser{
-			ID:                       u.ID,
-			Username:                 u.Username,
-			Email:                    u.Email,
-			DisplayName:              joinDisplayName(u.FirstName, u.LastName),
-			FirstName:                u.FirstName,
-			LastName:                 u.LastName,
-			Enabled:                  u.Enabled,
-			EmailVerified:            u.EmailVerified,
-			RequiredActions:          u.RequiredActions,
-			Attributes:               attributesFromKeycloak(u.Attributes),
-			Groups:                   groupMap[u.ID],
-			LastVPNLoginAt:           lastVPNLoginMap[u.ID],
-			LastVPNLoginLookupFailed: lastVPNLoginFailed[u.ID],
+			ID:              u.ID,
+			Username:        u.Username,
+			Email:           u.Email,
+			DisplayName:     joinDisplayName(u.FirstName, u.LastName),
+			FirstName:       u.FirstName,
+			LastName:        u.LastName,
+			Enabled:         u.Enabled,
+			EmailVerified:   u.EmailVerified,
+			RequiredActions: u.RequiredActions,
+			Attributes:      attributesFromKeycloak(u.Attributes),
+			Groups:          groupMap[u.ID],
 		})
 	}
 	return out, nil
@@ -606,299 +593,6 @@ func (c *Client) searchUsersRaw(ctx context.Context, q string, first, max int) (
 		return nil, err
 	}
 	return arr, nil
-}
-
-func (c *Client) LookupUsers(ctx context.Context, usernames []string) (map[string]services.KeycloakUserLookup, error) {
-	targets := normalizeLookupTargets(usernames)
-	if len(targets) == 0 {
-		return map[string]services.KeycloakUserLookup{}, nil
-	}
-
-	var (
-		rawUsers []keycloakUserPayload
-		err      error
-	)
-	if len(targets) <= c.effectiveLookupConcurrency()*2 {
-		rawUsers, err = c.lookupUsersByExactSearch(ctx, targets)
-	} else {
-		rawUsers, err = c.lookupUsersByPagedScan(ctx, targets)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	lastVPNLoginMap, lastVPNLoginFailed := c.fetchUserLastVPNLoginBatch(ctx, rawUsers)
-
-	out := make(map[string]services.KeycloakUserLookup, len(rawUsers))
-	for _, user := range rawUsers {
-		username := strings.ToLower(strings.TrimSpace(user.Username))
-		if username == "" {
-			continue
-		}
-		expiry := ""
-		if user.Attributes != nil {
-			expiry = strings.TrimSpace(attributesFromKeycloak(user.Attributes)["userExpiryVPN"])
-		}
-		out[username] = services.KeycloakUserLookup{
-			Username:                 strings.TrimSpace(user.Username),
-			Email:                    strings.TrimSpace(user.Email),
-			DisplayName:              strings.TrimSpace(joinDisplayName(user.FirstName, user.LastName)),
-			Enabled:                  user.Enabled,
-			VPNExpireAt:              expiry,
-			LastVPNLoginAt:           strings.TrimSpace(lastVPNLoginMap[user.ID]),
-			LastVPNLoginLookupFailed: lastVPNLoginFailed[user.ID],
-		}
-	}
-	return out, nil
-}
-
-func (c *Client) fetchUserLastVPNLoginAt(ctx context.Context, userID string) (string, error) {
-	userID = strings.TrimSpace(userID)
-	if userID == "" {
-		return "", nil
-	}
-
-	u, _ := url.Parse(c.adminURL("events"))
-	query := u.Query()
-	query.Set("user", userID)
-	query.Set("first", "0")
-	query.Set("max", "101")
-	if targetClientID := strings.TrimSpace(c.vpnEventClientID); targetClientID != "" {
-		query.Set("client", targetClientID)
-	}
-	u.RawQuery = query.Encode()
-
-	hreq, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	resp, err := c.http.Do(hreq)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("get user events failed: status=%d body=%s", resp.StatusCode, string(b))
-	}
-
-	var events []keycloakEventPayload
-	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
-		return "", err
-	}
-
-	return selectLatestVPNEventTime(events, c.vpnEventClientID), nil
-}
-
-func normalizeLookupTargets(usernames []string) []string {
-	if len(usernames) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(usernames))
-	out := make([]string, 0, len(usernames))
-	for _, username := range usernames {
-		normalized := strings.ToLower(strings.TrimSpace(username))
-		if normalized == "" {
-			continue
-		}
-		if _, ok := seen[normalized]; ok {
-			continue
-		}
-		seen[normalized] = struct{}{}
-		out = append(out, normalized)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func (c *Client) lookupUsersByExactSearch(ctx context.Context, targets []string) ([]keycloakUserPayload, error) {
-	results := make(map[string]keycloakUserPayload, len(targets))
-	var (
-		mu       sync.Mutex
-		wg       sync.WaitGroup
-		firstErr error
-		errOnce  sync.Once
-	)
-
-	sem := make(chan struct{}, c.effectiveLookupConcurrency())
-	for _, username := range targets {
-		username := username
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				return
-			}
-			defer func() { <-sem }()
-
-			page, err := c.searchUsersRaw(ctx, username, 0, 20)
-			if err != nil {
-				errOnce.Do(func() {
-					firstErr = err
-				})
-				return
-			}
-			for _, user := range page {
-				if !strings.EqualFold(strings.TrimSpace(user.Username), username) {
-					continue
-				}
-				mu.Lock()
-				results[username] = user
-				mu.Unlock()
-				return
-			}
-		}()
-	}
-
-	wg.Wait()
-	if firstErr != nil {
-		return nil, firstErr
-	}
-
-	out := make([]keycloakUserPayload, 0, len(results))
-	for _, username := range targets {
-		if user, ok := results[username]; ok {
-			out = append(out, user)
-		}
-	}
-	return out, nil
-}
-
-func (c *Client) lookupUsersByPagedScan(ctx context.Context, targets []string) ([]keycloakUserPayload, error) {
-	remaining := make(map[string]struct{}, len(targets))
-	for _, username := range targets {
-		remaining[username] = struct{}{}
-	}
-
-	const pageSize = 200
-	first := 0
-	results := make(map[string]keycloakUserPayload, len(targets))
-	for len(remaining) > 0 {
-		page, err := c.searchUsersRaw(ctx, "", first, pageSize)
-		if err != nil {
-			return nil, err
-		}
-		if len(page) == 0 {
-			break
-		}
-		for _, user := range page {
-			username := strings.ToLower(strings.TrimSpace(user.Username))
-			if username == "" {
-				continue
-			}
-			if _, ok := remaining[username]; !ok {
-				continue
-			}
-			results[username] = user
-			delete(remaining, username)
-		}
-		if len(page) < pageSize {
-			break
-		}
-		first += pageSize
-	}
-
-	out := make([]keycloakUserPayload, 0, len(results))
-	for _, username := range targets {
-		if user, ok := results[username]; ok {
-			out = append(out, user)
-		}
-	}
-	return out, nil
-}
-
-func (c *Client) fetchUserLastVPNLoginBatch(ctx context.Context, users []keycloakUserPayload) (map[string]string, map[string]bool) {
-	if len(users) == 0 {
-		return map[string]string{}, map[string]bool{}
-	}
-
-	results := make(map[string]string, len(users))
-	failed := make(map[string]bool, len(users))
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	sem := make(chan struct{}, c.effectiveLookupConcurrency())
-	for _, user := range users {
-		userID := strings.TrimSpace(user.ID)
-		if userID == "" {
-			continue
-		}
-
-		wg.Add(1)
-		go func(id string) {
-			defer wg.Done()
-
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				return
-			}
-			defer func() { <-sem }()
-
-			lastLoginAt, err := c.fetchUserLastVPNLoginAt(ctx, id)
-			if err != nil {
-				mu.Lock()
-				results[id] = ""
-				failed[id] = true
-				mu.Unlock()
-				return
-			}
-
-			mu.Lock()
-			results[id] = lastLoginAt
-			mu.Unlock()
-		}(userID)
-	}
-
-	wg.Wait()
-	return results, failed
-}
-
-func selectLatestVPNEventTime(events []keycloakEventPayload, targetClientID string) string {
-	var latest int64
-	targetClientID = strings.TrimSpace(targetClientID)
-	targetHost := ""
-	if targetClientID != "" {
-		if parsed, err := url.Parse(targetClientID); err == nil {
-			targetHost = strings.ToLower(strings.TrimSpace(parsed.Host))
-		}
-	}
-
-	for _, event := range events {
-		if !matchesVPNEvent(event, targetClientID, targetHost) {
-			continue
-		}
-		if event.Time > latest {
-			latest = event.Time
-		}
-	}
-	if latest <= 0 {
-		return ""
-	}
-	loc := time.FixedZone("UTC+7", 7*60*60)
-	return time.UnixMilli(latest).In(loc).Format(time.RFC3339)
-}
-
-func matchesVPNEvent(event keycloakEventPayload, targetClientID, targetHost string) bool {
-	clientID := strings.TrimSpace(event.ClientID)
-	if targetClientID == "" {
-		return clientID != ""
-	}
-	if strings.EqualFold(clientID, targetClientID) {
-		return true
-	}
-	if targetHost == "" || len(event.Details) == 0 {
-		return false
-	}
-	redirectURI := strings.TrimSpace(event.Details["redirect_uri"])
-	if redirectURI == "" {
-		return false
-	}
-	parsed, err := url.Parse(redirectURI)
-	if err != nil {
-		return false
-	}
-	return strings.EqualFold(strings.TrimSpace(parsed.Host), targetHost)
 }
 
 func (c *Client) fetchUserGroupsBatch(ctx context.Context, users []keycloakUserPayload) (map[string][]string, error) {

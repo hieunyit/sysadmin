@@ -19,8 +19,14 @@ type CreateUser struct {
 }
 
 type UpdateUser struct {
-	Email       *string `json:"email" validate:"omitempty,email"`
-	DisplayName *string `json:"display_name" validate:"omitempty,min=1,max=128"`
-	Enabled     *bool   `json:"enabled"`
-	Actor       string  `json:"-"`
+	Username        *string            `json:"username" validate:"omitempty,min=3,max=64"`
+	Email           *string            `json:"email" validate:"omitempty,email"`
+	FirstName       *string            `json:"first_name" validate:"omitempty,min=1,max=255"`
+	LastName        *string            `json:"last_name" validate:"omitempty,min=1,max=255"`
+	DisplayName     *string            `json:"display_name" validate:"omitempty,min=1,max=128"`
+	Enabled         *bool              `json:"enabled"`
+	EmailVerified   *bool              `json:"email_verified"`
+	RequiredActions *[]string          `json:"required_actions"`
+	Attributes      *map[string]string `json:"attributes"`
+	Actor           string             `json:"-"`
 }

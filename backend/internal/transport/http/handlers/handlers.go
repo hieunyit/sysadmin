@@ -31,17 +31,19 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/health", h.Health)
 	r.Get("/ready", h.Ready)
 
-		r.Route("/api/v1", func(r chi.Router) {
-			r.Route("/keycloak", func(r chi.Router) {
-				r.Post("/users", h.CreateUser)
-				r.Get("/users", h.ListUsers)
-				r.Get("/users/{id}", h.GetUser)
-				r.Patch("/users/{id}", h.UpdateUser)
-				r.Delete("/users/{id}", h.DeleteUser)
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Route("/keycloak", func(r chi.Router) {
+			r.Post("/users", h.CreateUser)
+			r.Get("/users", h.ListUsers)
+			r.Get("/users/{id}", h.GetUser)
+			r.Put("/users/{id}", h.UpdateUser)
+			r.Patch("/users/{id}", h.UpdateUser)
+			r.Delete("/users/{id}", h.DeleteUser)
 
 			r.Post("/groups", h.CreateGroup)
 			r.Get("/groups", h.ListGroups)
 			r.Get("/groups/{id}", h.GetGroup)
+			r.Put("/groups/{id}", h.UpdateGroup)
 			r.Patch("/groups/{id}", h.UpdateGroup)
 			r.Delete("/groups/{id}", h.DeleteGroup)
 
@@ -49,15 +51,19 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 			r.Delete("/groups/{id}/members/{userId}", h.RemoveMember)
 		})
 
-			r.Post("/openvpn/access-lists:append", h.AppendAccessList)
-			r.Post("/openvpn/access-lists:remove", h.RemoveAccessList)
-			r.Get("/openvpn/access-lists", h.ListOpenVPNAccessLists)
-			r.Post("/openvpn/users:create-from-keycloak", h.CreateOpenVPNUserFromKeycloak)
-			r.Get("/openvpn/users", h.ListOpenVPNUsers)
-			r.Get("/openvpn/users:export", h.ExportOpenVPNUsers)
-			r.Get("/openvpn/groups", h.ListOpenVPNGroups)
-		})
-	}
+		r.Post("/openvpn/users:create-from-keycloak", h.CreateOpenVPNUserFromKeycloak)
+		r.Get("/openvpn/users", h.ListOpenVPNUsers)
+		r.Get("/openvpn/users:export", h.ExportOpenVPNUsers)
+		r.Get("/openvpn/groups", h.ListOpenVPNGroups)
+
+		r.Get("/openvpn/users/{username}/access-lists", h.ListUserOpenVPNAccessLists)
+		r.Post("/openvpn/users/{username}/access-lists:append", h.AppendUserAccessList)
+		r.Post("/openvpn/users/{username}/access-lists:remove", h.RemoveUserAccessList)
+		r.Get("/openvpn/groups/{groupname}/access-lists", h.ListGroupOpenVPNAccessLists)
+		r.Post("/openvpn/groups/{groupname}/access-lists:append", h.AppendGroupAccessList)
+		r.Post("/openvpn/groups/{groupname}/access-lists:remove", h.RemoveGroupAccessList)
+	})
+}
 
 func (h *Handler) Health(w http.ResponseWriter, _ *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok"})

@@ -64,11 +64,6 @@ type OpenVPNUserExportRow struct {
 	Deny            string `json:"deny"`
 	PasswordDefined string `json:"password_defined"`
 	MFAStatus       string `json:"mfa_status"`
-	Email           string `json:"email,omitempty"`
-	DisplayName     string `json:"display_name,omitempty"`
-	Enabled         bool   `json:"enabled"`
-	VPNExpireAt     string `json:"vpn_expire_at,omitempty"`
-	LastVPNLoginAt  string `json:"last_vpn_login_at,omitempty"`
 }
 
 type OpenVPNRuleListQuery struct {

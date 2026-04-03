@@ -37,7 +37,7 @@ func TestAPIErrorFriendlyMessageStillIncludesRequestID(t *testing.T) {
 
 	err := (&APIError{
 		Method:    "POST",
-		Path:      "/api/v1/openvpn/access-lists:append",
+		Path:      "/api/v1/openvpn/groups/vanhanh/access-lists:append",
 		Status:    412,
 		Code:      "precondition_failed",
 		Message:   `group "Test" has no OpenVPN ruleset for domain routing`,

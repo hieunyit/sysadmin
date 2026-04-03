@@ -33,7 +33,7 @@ PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local GOMODCACHE=/tmp/gomodcache GOPATH
 4. Use CLI:
 
 ```bash
-PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local GOMODCACHE=/tmp/gomodcache GOPATH=/tmp/go GOCACHE=/tmp/gocache go build -o sysctl ./cmd/vpnctl
+PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local GOMODCACHE=/tmp/gomodcache GOPATH=/tmp/go GOCACHE=/tmp/gocache go build -o sysctl ./cmd/sysctl
 ./sysctl --help
 ```
 
@@ -43,8 +43,6 @@ Mail se duoc gui khi:
 - tao user
 - enable user
 - disable user
-- cap nhat VPN access cho user
-- cap nhat VPN access cho group (gui den cac member cua group trong Keycloak)
 
 SMTP env:
 
@@ -114,7 +112,7 @@ sysctl keycloak user create-local \
 
 sysctl keycloak user disable --username test.mail
 
-sysctl openvpn access-list append --username test.mail --target 10.0.0.0/8
+sysctl openvpn user access-list append --username test.mail --target 10.0.0.0/8
 ```
 
 Xem mail tai:
@@ -137,9 +135,12 @@ http://127.0.0.1:8025
 - `sysctl openvpn user create-from-keycloak`
 - `sysctl openvpn user list`
 - `sysctl openvpn group list`
-- `sysctl openvpn access-list list`
-- `sysctl openvpn access-list append`
-- `sysctl openvpn access-list remove`
+- `sysctl openvpn user access-list list`
+- `sysctl openvpn user access-list append`
+- `sysctl openvpn user access-list remove`
+- `sysctl openvpn group access-list list`
+- `sysctl openvpn group access-list append`
+- `sysctl openvpn group access-list remove`
 
 ## Public API
 
@@ -158,14 +159,17 @@ http://127.0.0.1:8025
 - `POST /api/v1/openvpn/users:create-from-keycloak`
 - `GET /api/v1/openvpn/users`
 - `GET /api/v1/openvpn/groups`
-- `GET /api/v1/openvpn/access-lists`
-- `POST /api/v1/openvpn/access-lists:append`
-- `POST /api/v1/openvpn/access-lists:remove`
+- `GET /api/v1/openvpn/users/{username}/access-lists`
+- `POST /api/v1/openvpn/users/{username}/access-lists:append`
+- `POST /api/v1/openvpn/users/{username}/access-lists:remove`
+- `GET /api/v1/openvpn/groups/{groupname}/access-lists`
+- `POST /api/v1/openvpn/groups/{groupname}/access-lists:append`
+- `POST /api/v1/openvpn/groups/{groupname}/access-lists:remove`
 
 ## Key paths
 
 - `cmd/server/main.go`: backend entrypoint
-- `cmd/vpnctl/main.go`: CLI entrypoint
+- `cmd/sysctl/main.go`: CLI entrypoint
 - `internal/application`: application services
 - `internal/infrastructure/keycloak`: Keycloak admin client
 - `internal/infrastructure/openvpn`: OpenVPN AS API client
@@ -174,6 +178,6 @@ http://127.0.0.1:8025
 ## Current design note
 
 Phase 1 này ưu tiên tool vận hành trực tiếp qua API/CLI.
-OpenVPN `access-list` là giao diện chính cho IP/CIDR và domain:
+OpenVPN `access-list` là giao diện chính cho IP/CIDR và domain, được tách rõ theo owner (`openvpn user access-list ...` hoặc `openvpn group access-list ...`):
 - IP/CIDR đi qua access list
 - domain được backend tự dịch sang rules/ruleset nội bộ của OpenVPN AS

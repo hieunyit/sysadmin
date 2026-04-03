@@ -34,7 +34,6 @@ type KeycloakConfig struct {
 	ClientID          string
 	ClientSecret      string
 	TokenURL          string
-	VPNEventClientID  string
 	LookupConcurrency int
 	Timeout           time.Duration
 	LDAPComponentID   string
@@ -133,7 +132,6 @@ func Load() (Config, error) {
 			"KEYCLOAK_TOKEN_URL",
 			defaultKeycloakTokenURL(keycloakBaseURL, keycloakRealm),
 		),
-		VPNEventClientID:  getenv("KEYCLOAK_VPN_EVENT_CLIENT_ID", "https://vpn.mbfs.vn/saml/metadata"),
 		LookupConcurrency: keycloakLookupConcurrency,
 		Timeout:           keycloakTimeout,
 		LDAPComponentID:   getenv("KEYCLOAK_LDAP_COMPONENT_ID", ""),

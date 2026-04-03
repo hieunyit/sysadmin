@@ -12,32 +12,22 @@ import (
 )
 
 type userSummaryDTO struct {
-	ID                       string   `json:"id"`
-	Username                 string   `json:"username"`
-	Email                    string   `json:"email"`
-	DisplayName              string   `json:"display_name"`
-	Enabled                  bool     `json:"enabled"`
-	VPNExpireAt              string   `json:"vpn_expire_at,omitempty"`
-	LastVPNLoginAt           string   `json:"last_vpn_login_at,omitempty"`
-	LastVPNLoginLookupFailed bool     `json:"last_vpn_login_lookup_failed,omitempty"`
-	Groups                   []string `json:"groups"`
+	ID          string   `json:"id"`
+	Username    string   `json:"username"`
+	Email       string   `json:"email"`
+	DisplayName string   `json:"display_name"`
+	Enabled     bool     `json:"enabled"`
+	Groups      []string `json:"groups"`
 }
 
 func toUserSummaryDTO(u services.KeycloakUser) userSummaryDTO {
-	expireAt := ""
-	if u.Attributes != nil {
-		expireAt = strings.TrimSpace(u.Attributes["userExpiryVPN"])
-	}
 	return userSummaryDTO{
-		ID:                       u.ID,
-		Username:                 u.Username,
-		Email:                    u.Email,
-		DisplayName:              u.DisplayName,
-		Enabled:                  u.Enabled,
-		VPNExpireAt:              expireAt,
-		LastVPNLoginAt:           strings.TrimSpace(u.LastVPNLoginAt),
-		LastVPNLoginLookupFailed: u.LastVPNLoginLookupFailed,
-		Groups:                   u.Groups,
+		ID:          u.ID,
+		Username:    u.Username,
+		Email:       u.Email,
+		DisplayName: u.DisplayName,
+		Enabled:     u.Enabled,
+		Groups:      u.Groups,
 	}
 }
 
@@ -114,13 +104,13 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		LastName:          lastName,
 		DisplayName:       displayName,
 		IdentitySource:    identitySource,
-			EmailVerified:     emailVerified,
-			RequiredActions:   requiredActions,
-			Attributes:        attributes,
-			Groups:            req.Groups,
-			Enabled:           req.Enabled,
-			Password:          req.Password,
-			PasswordTemporary: passwordTemporary,
+		EmailVerified:     emailVerified,
+		RequiredActions:   requiredActions,
+		Attributes:        attributes,
+		Groups:            req.Groups,
+		Enabled:           req.Enabled,
+		Password:          req.Password,
+		PasswordTemporary: passwordTemporary,
 		Actor:             actor(r),
 	}
 
@@ -155,17 +145,28 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func userSummaryWarnings(item userSummaryDTO) []string {
-	if !item.LastVPNLoginLookupFailed {
-		return nil
+func firstStringPointer(values ...*string) *string {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
 	}
-	return []string{"Không thể lấy thời gian đăng nhập VPN gần nhất từ Keycloak events cho người dùng này."}
+	return nil
 }
 
-func userListWarnings(items []userSummaryDTO) []string {
-	for _, item := range items {
-		if item.LastVPNLoginLookupFailed {
-			return []string{"Không thể lấy thời gian đăng nhập VPN gần nhất từ Keycloak events cho một số người dùng; dữ liệu last_vpn_login_at có thể chưa đầy đủ."}
+func firstBoolPointer(values ...*bool) *bool {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func firstStringSlicePointer(values ...*[]string) *[]string {
+	for _, value := range values {
+		if value != nil {
+			return value
 		}
 	}
 	return nil
@@ -205,8 +206,7 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		items = append(items, toUserSummaryDTO(u))
 	}
 	httputil.WriteJSON(w, http.StatusOK, httputil.SuccessResponse{
-		Data:     items,
-		Warnings: userListWarnings(items),
+		Data: items,
 	})
 }
 
@@ -219,8 +219,7 @@ func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 	}
 	dto := toUserSummaryDTO(u)
 	httputil.WriteJSON(w, http.StatusOK, httputil.SuccessResponse{
-		Data:     dto,
-		Warnings: userSummaryWarnings(dto),
+		Data: dto,
 	})
 }
 
@@ -235,11 +234,22 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, err, requestID(r))
 		return
 	}
+	attrs := req.Attributes
+	if attrs != nil {
+		cloned := cloneStringMap(*attrs)
+		attrs = &cloned
+	}
 	u, err := h.services.User.Update(r.Context(), id, appcmd.UpdateUser{
-		Email:       req.Email,
-		DisplayName: req.DisplayName,
-		Enabled:     req.Enabled,
-		Actor:       actor(r),
+		Username:        req.Username,
+		Email:           req.Email,
+		FirstName:       firstStringPointer(req.FirstName, req.FirstNameAlt),
+		LastName:        firstStringPointer(req.LastName, req.LastNameAlt),
+		DisplayName:     firstStringPointer(req.DisplayName, req.DisplayNameAlt),
+		Enabled:         req.Enabled,
+		EmailVerified:   firstBoolPointer(req.EmailVerified, req.EmailVerifiedAlt),
+		RequiredActions: firstStringSlicePointer(req.RequiredActions, req.RequiredActionsAlt),
+		Attributes:      attrs,
+		Actor:           actor(r),
 	})
 	if err != nil {
 		httputil.WriteError(w, err, requestID(r))
@@ -247,8 +257,7 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	dto := toUserSummaryDTO(u)
 	httputil.WriteJSON(w, http.StatusOK, httputil.SuccessResponse{
-		Data:     dto,
-		Warnings: userSummaryWarnings(dto),
+		Data: dto,
 	})
 }
 

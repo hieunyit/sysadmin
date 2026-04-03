@@ -136,29 +136,113 @@ func (s *UserService) Update(ctx context.Context, id string, cmd commands.Update
 	}
 
 	req := services.KeycloakUser{
-		Username:    current.Username,
-		Email:       current.Email,
-		DisplayName: current.DisplayName,
-		Enabled:     current.Enabled,
-		FirstName:   current.FirstName,
-		LastName:    current.LastName,
+		Username:        current.Username,
+		Email:           current.Email,
+		DisplayName:     current.DisplayName,
+		Enabled:         current.Enabled,
+		EmailVerified:   current.EmailVerified,
+		FirstName:       current.FirstName,
+		LastName:        current.LastName,
+		RequiredActions: append([]string(nil), current.RequiredActions...),
+		Attributes:      cloneStringAttributes(current.Attributes),
+	}
+	if cmd.Username != nil {
+		req.Username = strings.TrimSpace(*cmd.Username)
+		if req.Username == "" {
+			return services.KeycloakUser{}, domainerr.NewWithDetails(domainerr.CodeInvalidArgument, "validation failed", map[string]string{
+				"username": "must not be blank",
+			})
+		}
 	}
 	if cmd.Email != nil {
-		req.Email = *cmd.Email
+		req.Email = strings.TrimSpace(*cmd.Email)
+		if req.Email == "" {
+			return services.KeycloakUser{}, domainerr.NewWithDetails(domainerr.CodeInvalidArgument, "validation failed", map[string]string{
+				"email": "must not be blank",
+			})
+		}
 	}
 	if cmd.DisplayName != nil {
-		req.DisplayName = *cmd.DisplayName
-		req.FirstName = ""
-		req.LastName = ""
+		req.DisplayName = strings.TrimSpace(*cmd.DisplayName)
+		if req.DisplayName == "" {
+			return services.KeycloakUser{}, domainerr.NewWithDetails(domainerr.CodeInvalidArgument, "validation failed", map[string]string{
+				"display_name": "must not be blank",
+			})
+		}
+		req.FirstName, req.LastName = splitDisplayName(req.DisplayName)
+	}
+	if cmd.FirstName != nil {
+		req.FirstName = strings.TrimSpace(*cmd.FirstName)
+		if req.FirstName == "" {
+			return services.KeycloakUser{}, domainerr.NewWithDetails(domainerr.CodeInvalidArgument, "validation failed", map[string]string{
+				"first_name": "must not be blank",
+			})
+		}
+	}
+	if cmd.LastName != nil {
+		req.LastName = strings.TrimSpace(*cmd.LastName)
+		if req.LastName == "" {
+			return services.KeycloakUser{}, domainerr.NewWithDetails(domainerr.CodeInvalidArgument, "validation failed", map[string]string{
+				"last_name": "must not be blank",
+			})
+		}
+	}
+	if cmd.FirstName != nil || cmd.LastName != nil {
+		req.DisplayName = strings.TrimSpace(strings.TrimSpace(req.LastName) + " " + strings.TrimSpace(req.FirstName))
 	}
 	if cmd.Enabled != nil {
 		req.Enabled = *cmd.Enabled
+	}
+	if cmd.EmailVerified != nil {
+		req.EmailVerified = *cmd.EmailVerified
+	}
+	if cmd.RequiredActions != nil {
+		req.RequiredActions = normalizeStringSlice(*cmd.RequiredActions)
+	}
+	if cmd.Attributes != nil {
+		attrs := cloneStringAttributes(*cmd.Attributes)
+		if attrs == nil {
+			attrs = map[string]string{}
+		}
+		for key, value := range attrs {
+			trimmedKey := strings.TrimSpace(key)
+			trimmedValue := strings.TrimSpace(value)
+			if trimmedKey == "" || trimmedValue == "" {
+				delete(attrs, key)
+				continue
+			}
+			if trimmedKey != key {
+				delete(attrs, key)
+				attrs[trimmedKey] = trimmedValue
+			} else {
+				attrs[key] = trimmedValue
+			}
+		}
+		normalizeAttributeAlias(attrs, "onboardDate", "onboard", "onboard_date")
+		normalizeAttributeAlias(attrs, "workAddress", "address", "work_address")
+		if onboardDate := strings.TrimSpace(attrs["onboardDate"]); onboardDate != "" {
+			normalizedOnboard, err := inputvalidate.NormalizeDDMMYYYY(onboardDate)
+			if err != nil {
+				return services.KeycloakUser{}, domainerr.NewWithDetails(domainerr.CodeInvalidArgument, "validation failed", map[string]string{
+					"attributes.onboardDate": "must be a valid date in dd/MM/yyyy",
+				})
+			}
+			attrs["onboardDate"] = normalizedOnboard
+		}
+		req.Attributes = attrs
 	}
 
 	updated, err := s.keycloak.UpdateUser(ctx, id, req)
 	if err != nil {
 		if isUpstreamStatus(err, 404) {
 			return services.KeycloakUser{}, domainerr.New(domainerr.CodeNotFound, "user not found")
+		}
+		if isUpstreamStatus(err, 400) {
+			details := map[string]string{}
+			if summary := upstreamSummary(err); summary != "" {
+				details["upstream"] = summary
+			}
+			return services.KeycloakUser{}, domainerr.NewWithDetails(domainerr.CodeInvalidArgument, "keycloak rejected update user payload", details)
 		}
 		return services.KeycloakUser{}, domainerr.Wrap(domainerr.CodeExternalFailure, "keycloak update user failed", err)
 	}
@@ -246,15 +330,6 @@ func validateCreateUserBusinessRules(cmd *commands.CreateUser) error {
 	identitySource := strings.ToLower(strings.TrimSpace(cmd.IdentitySource))
 	attrs := cmd.Attributes
 
-	if attrs != nil && strings.TrimSpace(attrs["userExpiryVPN"]) != "" {
-		normalizedExpiry, err := inputvalidate.NormalizeDDMMYYYY(attrs["userExpiryVPN"])
-		if err != nil {
-			return domainerr.NewWithDetails(domainerr.CodeInvalidArgument, "validation failed", map[string]string{
-				"attributes.userExpiryVPN": "must be a valid date in dd/MM/yyyy",
-			})
-		}
-		attrs["userExpiryVPN"] = normalizedExpiry
-	}
 	if attrs != nil && strings.TrimSpace(attrs["onboardDate"]) != "" {
 		normalizedOnboard, err := inputvalidate.NormalizeDDMMYYYY(attrs["onboardDate"])
 		if err != nil {
@@ -365,6 +440,32 @@ func normalizeCreateUserInput(cmd *commands.CreateUser) error {
 	}
 
 	return nil
+}
+
+func splitDisplayName(display string) (string, string) {
+	parts := strings.Fields(strings.TrimSpace(display))
+	if len(parts) == 0 {
+		return "", ""
+	}
+	if len(parts) == 1 {
+		return parts[0], ""
+	}
+	return parts[len(parts)-1], strings.Join(parts[:len(parts)-1], " ")
+}
+
+func normalizeStringSlice(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for _, item := range in {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func normalizeAttributeAlias(attrs map[string]string, canonical string, aliases ...string) {

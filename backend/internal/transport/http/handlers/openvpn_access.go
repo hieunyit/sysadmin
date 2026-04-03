@@ -2,19 +2,38 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
+
+	"github.com/go-chi/chi/v5"
 
 	domainerr "backend/internal/domain/errors"
 	"backend/internal/domain/services"
 	"backend/pkg/httputil"
 )
 
-func (h *Handler) AppendAccessList(w http.ResponseWriter, r *http.Request) {
-	h.handleAccessListMutation(w, r, "append")
+func (h *Handler) AppendUserAccessList(w http.ResponseWriter, r *http.Request) {
+	h.handleAccessListMutationForOwner(w, r, "append", "user", chi.URLParam(r, "username"))
 }
 
-func (h *Handler) RemoveAccessList(w http.ResponseWriter, r *http.Request) {
-	h.handleAccessListMutation(w, r, "remove")
+func (h *Handler) RemoveUserAccessList(w http.ResponseWriter, r *http.Request) {
+	h.handleAccessListMutationForOwner(w, r, "remove", "user", chi.URLParam(r, "username"))
+}
+
+func (h *Handler) AppendGroupAccessList(w http.ResponseWriter, r *http.Request) {
+	h.handleAccessListMutationForOwner(w, r, "append", "group", chi.URLParam(r, "groupname"))
+}
+
+func (h *Handler) RemoveGroupAccessList(w http.ResponseWriter, r *http.Request) {
+	h.handleAccessListMutationForOwner(w, r, "remove", "group", chi.URLParam(r, "groupname"))
+}
+
+func (h *Handler) ListUserOpenVPNAccessLists(w http.ResponseWriter, r *http.Request) {
+	h.listOpenVPNAccessListsForOwner(w, r, "user", chi.URLParam(r, "username"))
+}
+
+func (h *Handler) ListGroupOpenVPNAccessLists(w http.ResponseWriter, r *http.Request) {
+	h.listOpenVPNAccessListsForOwner(w, r, "group", chi.URLParam(r, "groupname"))
 }
 
 func (h *Handler) ListOpenVPNUsers(w http.ResponseWriter, r *http.Request) {
@@ -44,10 +63,7 @@ func (h *Handler) ListOpenVPNUsers(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, err, requestID(r))
 		return
 	}
-	httputil.WriteJSON(w, http.StatusOK, httputil.SuccessResponse{
-		Data:     out,
-		Warnings: openVPNUserWarnings(out),
-	})
+	httputil.WriteJSON(w, http.StatusOK, httputil.SuccessResponse{Data: out})
 }
 
 func (h *Handler) ListOpenVPNGroups(w http.ResponseWriter, r *http.Request) {
@@ -122,68 +138,35 @@ func (h *Handler) CreateOpenVPNUserFromKeycloak(w http.ResponseWriter, r *http.R
 
 	httputil.WriteJSON(w, http.StatusCreated, httputil.SuccessResponse{
 		Data: map[string]any{
-			"keycloak_user_id": result.UsedKeycloakID,
+			"keycloak_user_id":  result.UsedKeycloakID,
 			"keycloak_username": strings.TrimSpace(result.User.Username),
-			"keycloak_email": strings.TrimSpace(result.User.Email),
-			"openvpn_username": result.OpenVPNUser,
-			"openvpn_group": result.OpenVPNGroup,
+			"keycloak_email":    strings.TrimSpace(result.User.Email),
+			"openvpn_username":  result.OpenVPNUser,
+			"openvpn_group":     result.OpenVPNGroup,
 		},
 		Warnings: result.Warnings,
 	})
 }
 
-func (h *Handler) ListOpenVPNAccessLists(w http.ResponseWriter, r *http.Request) {
-	username := strings.TrimSpace(r.URL.Query().Get("username"))
-	groupname := strings.TrimSpace(r.URL.Query().Get("groupname"))
-	subjectType := strings.TrimSpace(r.URL.Query().Get("subject_type"))
-	if subjectType == "" {
-		subjectType = strings.TrimSpace(r.URL.Query().Get("object_type"))
-	}
-	if username != "" && groupname != "" {
-		httputil.WriteAPIError(w, http.StatusBadRequest, string(domainerr.CodeInvalidArgument), "set either username or groupname", requestID(r), map[string]string{
-			"username":  "cannot be combined with groupname",
-			"groupname": "cannot be combined with username",
-		})
-		return
-	}
-	if subjectType == "" {
-		switch {
-		case username != "" && groupname == "":
-			subjectType = "user"
-		case groupname != "" && username == "":
-			subjectType = "group"
-		}
-	}
-	if subjectType != "" && subjectType != "user" && subjectType != "group" {
-		httputil.WriteAPIError(w, http.StatusBadRequest, string(domainerr.CodeInvalidArgument), "subject_type must be user or group", requestID(r), map[string]string{
-			"subject_type": "must be one of: user, group",
-		})
-		return
-	}
-	if username == "" && groupname == "" && subjectType == "" {
-		httputil.WriteAPIError(w, http.StatusBadRequest, string(domainerr.CodeInvalidArgument), "access-list is scoped to user/group; set username, groupname or subject_type", requestID(r), map[string]string{
-			"subject": "set username or groupname",
-		})
-		return
-	}
-	if subjectType == "user" && username == "" && groupname != "" {
-		httputil.WriteAPIError(w, http.StatusBadRequest, string(domainerr.CodeInvalidArgument), "subject_type=user requires username filter", requestID(r), map[string]string{
-			"username": "is required when subject_type=user",
-		})
-		return
-	}
-	if subjectType == "group" && groupname == "" && username != "" {
-		httputil.WriteAPIError(w, http.StatusBadRequest, string(domainerr.CodeInvalidArgument), "subject_type=group requires groupname filter", requestID(r), map[string]string{
-			"groupname": "is required when subject_type=group",
-		})
+func (h *Handler) listOpenVPNAccessListsForOwner(w http.ResponseWriter, r *http.Request, subjectType, subject string) {
+	subject, err := normalizeAccessListOwner(subjectType, subject)
+	if err != nil {
+		httputil.WriteError(w, err, requestID(r))
 		return
 	}
 
-	out, err := h.services.OpenVPNAdmin.ListAccessEntries(r.Context(), services.OpenVPNAccessListQuery{
-		Username:    username,
-		Groupname:   groupname,
-		SubjectType: subjectType,
-	})
+	query := services.OpenVPNAccessListQuery{SubjectType: subjectType}
+	switch subjectType {
+	case "user":
+		query.Username = subject
+	case "group":
+		query.Groupname = subject
+	default:
+		httputil.WriteError(w, domainerr.New(domainerr.CodeInvalidArgument, "unsupported subject type"), requestID(r))
+		return
+	}
+
+	out, err := h.services.OpenVPNAdmin.ListAccessEntries(r.Context(), query)
 	if err != nil {
 		httputil.WriteError(w, err, requestID(r))
 		return
@@ -191,7 +174,13 @@ func (h *Handler) ListOpenVPNAccessLists(w http.ResponseWriter, r *http.Request)
 	httputil.WriteJSON(w, http.StatusOK, httputil.SuccessResponse{Data: out})
 }
 
-func (h *Handler) handleAccessListMutation(w http.ResponseWriter, r *http.Request, mode string) {
+func (h *Handler) handleAccessListMutationForOwner(w http.ResponseWriter, r *http.Request, mode, subjectType, subject string) {
+	subject, err := normalizeAccessListOwner(subjectType, subject)
+	if err != nil {
+		httputil.WriteError(w, err, requestID(r))
+		return
+	}
+
 	var req accessListDTO
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.WriteError(w, err, requestID(r))
@@ -201,7 +190,11 @@ func (h *Handler) handleAccessListMutation(w http.ResponseWriter, r *http.Reques
 		httputil.WriteError(w, err, requestID(r))
 		return
 	}
-	items := mapAccessEntries(req.Items)
+	items, err := mapAccessEntriesForOwner(req.Items, subjectType, subject)
+	if err != nil {
+		httputil.WriteError(w, err, requestID(r))
+		return
+	}
 	if err := h.services.OpenVPNAdmin.ApplyAccessEntries(r.Context(), mode, items, actor(r)); err != nil {
 		httputil.WriteError(w, err, requestID(r))
 		return
@@ -209,19 +202,64 @@ func (h *Handler) handleAccessListMutation(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func openVPNUserWarnings(out map[string]any) []string {
-	profiles, ok := out["profiles"].([]any)
-	if !ok {
-		return nil
+func normalizeAccessListOwner(subjectType, subject string) (string, error) {
+	subject = strings.TrimSpace(subject)
+	field := "username"
+	if subjectType == "group" {
+		field = "groupname"
 	}
-	for _, item := range profiles {
-		profile, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		if failed, ok := profile["last_vpn_login_lookup_failed"].(bool); ok && failed {
-			return []string{"Không thể lấy thời gian đăng nhập VPN gần nhất từ Keycloak events cho một số người dùng; dữ liệu last_vpn_login_at có thể chưa đầy đủ."}
+	if subject == "" {
+		return "", domainerr.NewWithDetails(domainerr.CodeInvalidArgument, "validation failed", map[string]string{
+			field: "is required",
+		})
+	}
+	return subject, nil
+}
+
+func mapAccessEntriesForOwner(items []accessRouteDTO, subjectType, subject string) ([]services.OpenVPNAccessEntryInput, error) {
+	mapped := mapAccessEntries(items)
+	for i := range mapped {
+		username := strings.TrimSpace(pointerString(mapped[i].Username))
+		groupname := strings.TrimSpace(pointerString(mapped[i].Groupname))
+		switch subjectType {
+		case "user":
+			if groupname != "" {
+				return nil, domainerr.NewWithDetails(domainerr.CodeInvalidArgument, "validation failed", map[string]string{
+					"items[" + strconv.Itoa(i) + "].groupname": "is not allowed for user access-list endpoint",
+				})
+			}
+			if username != "" && !strings.EqualFold(username, subject) {
+				return nil, domainerr.NewWithDetails(domainerr.CodeInvalidArgument, "validation failed", map[string]string{
+					"items[" + strconv.Itoa(i) + "].username": "must match path username",
+				})
+			}
+			owner := subject
+			mapped[i].Username = &owner
+			mapped[i].Groupname = nil
+		case "group":
+			if username != "" {
+				return nil, domainerr.NewWithDetails(domainerr.CodeInvalidArgument, "validation failed", map[string]string{
+					"items[" + strconv.Itoa(i) + "].username": "is not allowed for group access-list endpoint",
+				})
+			}
+			if groupname != "" && !strings.EqualFold(groupname, subject) {
+				return nil, domainerr.NewWithDetails(domainerr.CodeInvalidArgument, "validation failed", map[string]string{
+					"items[" + strconv.Itoa(i) + "].groupname": "must match path groupname",
+				})
+			}
+			owner := subject
+			mapped[i].Groupname = &owner
+			mapped[i].Username = nil
+		default:
+			return nil, domainerr.New(domainerr.CodeInvalidArgument, "unsupported subject type")
 		}
 	}
-	return nil
+	return mapped, nil
+}
+
+func pointerString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }

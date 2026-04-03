@@ -62,7 +62,7 @@ func TestWriteErrorIncludesDetailsAndRequestID(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	err := domainerr.NewWithDetails(domainerr.CodeInvalidArgument, "validation failed", map[string]string{
-		"userExpiryVPN": "must be a valid date in dd/MM/yyyy",
+		"onboardDate": "must be a valid date in dd/MM/yyyy",
 	})
 	WriteError(rec, err, "req-123")
 
@@ -73,7 +73,7 @@ func TestWriteErrorIncludesDetailsAndRequestID(t *testing.T) {
 	if !strings.Contains(body, `"request_id":"req-123"`) {
 		t.Fatalf("expected request_id in body, got %s", body)
 	}
-	if !strings.Contains(body, `"userExpiryVPN":"must be a valid date in dd/MM/yyyy"`) {
+	if !strings.Contains(body, `"onboardDate":"must be a valid date in dd/MM/yyyy"`) {
 		t.Fatalf("expected details in body, got %s", body)
 	}
 }

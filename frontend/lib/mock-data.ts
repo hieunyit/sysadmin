@@ -293,6 +293,33 @@ export const mockSessions = [
   },
 ]
 
+export const mockVPNGroups = [
+  {
+    id: "vg1",
+    name: "developers",
+    description: "Development team VPN access",
+    prop_autologin: true,
+  },
+  {
+    id: "vg2",
+    name: "admins",
+    description: "System administrators",
+    prop_autologin: true,
+  },
+  {
+    id: "vg3",
+    name: "contractors",
+    description: "External contractors",
+    prop_autologin: false,
+  },
+  {
+    id: "vg4",
+    name: "support",
+    description: "Customer support team",
+    prop_autologin: false,
+  },
+]
+
 export const mockVPNUsers = [
   {
     id: "vpn1",
@@ -303,6 +330,9 @@ export const mockVPNUsers = [
     lastLogin: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
     status: "active" as const,
     assignedIP: "10.8.0.2",
+    group: "developers",
+    prop_autologin: true,
+    prop_admin: false,
   },
   {
     id: "vpn2",
@@ -313,6 +343,9 @@ export const mockVPNUsers = [
     lastLogin: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
     status: "active" as const,
     assignedIP: "10.8.0.3",
+    group: "developers",
+    prop_autologin: true,
+    prop_admin: false,
   },
   {
     id: "vpn3",
@@ -323,6 +356,9 @@ export const mockVPNUsers = [
     lastLogin: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
     status: "inactive" as const,
     assignedIP: "10.8.0.4",
+    group: "support",
+    prop_autologin: false,
+    prop_admin: false,
   },
   {
     id: "vpn4",
@@ -333,6 +369,9 @@ export const mockVPNUsers = [
     lastLogin: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
     status: "suspended" as const,
     assignedIP: "10.8.0.5",
+    group: "contractors",
+    prop_autologin: false,
+    prop_admin: false,
   },
   {
     id: "vpn5",
@@ -343,6 +382,9 @@ export const mockVPNUsers = [
     lastLogin: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
     status: "active" as const,
     assignedIP: "10.8.0.6",
+    group: "developers",
+    prop_autologin: true,
+    prop_admin: false,
   },
   {
     id: "vpn6",
@@ -353,6 +395,9 @@ export const mockVPNUsers = [
     lastLogin: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
     status: "active" as const,
     assignedIP: "10.8.0.1",
+    group: "admins",
+    prop_autologin: true,
+    prop_admin: true,
   },
   {
     id: "vpn7",
@@ -362,6 +407,8 @@ export const mockVPNUsers = [
     createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
     status: "inactive" as const,
     assignedIP: "10.8.0.7",
+    prop_autologin: false,
+    prop_admin: false,
   },
   {
     id: "vpn8",
@@ -372,6 +419,9 @@ export const mockVPNUsers = [
     lastLogin: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
     status: "active" as const,
     assignedIP: "10.8.0.8",
+    group: "support",
+    prop_autologin: false,
+    prop_admin: false,
   },
 ]
 

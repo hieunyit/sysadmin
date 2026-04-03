@@ -17,25 +17,12 @@ type KeycloakUser struct {
 	Password          string
 	PasswordTemporary bool
 	IdentitySource    string
-	LastVPNLoginAt    string
-	LastVPNLoginLookupFailed bool
 }
 
 type KeycloakGroup struct {
 	ID   string
 	Name string
 	Path string
-}
-
-type KeycloakUserLookup struct {
-	Username                 string
-	Email                    string
-	DisplayName              string
-	Enabled                  bool
-	VPNExpireAt              string
-	Groups                   []string
-	LastVPNLoginAt           string
-	LastVPNLoginLookupFailed bool
 }
 
 type KeycloakIdentityService interface {

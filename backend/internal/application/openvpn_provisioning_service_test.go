@@ -20,9 +20,6 @@ func TestOpenVPNProvisioningServiceCreateUserFromKeycloakByUsername(t *testing.T
 				Email:       "alice@example.com",
 				DisplayName: "Alice",
 				Enabled:     true,
-				Attributes: map[string]string{
-					"userExpiryVPN": "20/04/2026",
-				},
 			}}, nil
 		},
 	}

@@ -1,7 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import { Save, Server, Key, Globe, Database, Shield, Bell, RefreshCw, TestTube, CheckCircle, XCircle, AlertTriangle } from "lucide-react"
+import {
+  Save, Server, Key, Globe, Database, Shield, Bell, RefreshCw,
+  TestTube, CheckCircle, XCircle, AlertTriangle, Mail, Send,
+  Lock, Eye, EyeOff,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -9,14 +13,18 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Spinner } from "@/components/ui/spinner"
 
 export default function SettingsPage() {
   const [isTesting, setIsTesting] = useState<string | null>(null)
+  const [showSmtpPassword, setShowSmtpPassword] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<Record<string, "success" | "error" | null>>({
     keycloak: null,
     openvpn: null,
+    email: null,
   })
 
   const [keycloakSettings, setKeycloakSettings] = useState({
@@ -34,6 +42,20 @@ export default function SettingsPage() {
     enabled: true,
   })
 
+  const [emailSettings, setEmailSettings] = useState({
+    smtpHost: "",
+    smtpPort: "587",
+    smtpUsername: "",
+    smtpPassword: "",
+    fromAddress: "",
+    fromName: "Admin Portal",
+    encryption: "tls",
+    enabled: false,
+    sendWelcomeEmail: true,
+    sendPasswordReset: true,
+    sendAccountNotifications: true,
+  })
+
   const [notificationSettings, setNotificationSettings] = useState({
     userLogin: true,
     userCreated: true,
@@ -44,7 +66,7 @@ export default function SettingsPage() {
     securityAlerts: true,
   })
 
-  const testConnection = async (service: "keycloak" | "openvpn") => {
+  const testConnection = async (service: "keycloak" | "openvpn" | "email") => {
     setIsTesting(service)
     setConnectionStatus((prev) => ({ ...prev, [service]: null }))
 
@@ -84,7 +106,7 @@ export default function SettingsPage() {
         </div>
 
         <Tabs defaultValue="keycloak" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 max-w-2xl">
+          <TabsList className="grid w-full grid-cols-5 max-w-3xl">
             <TabsTrigger value="keycloak" className="gap-2">
               <Key className="w-4 h-4" />
               Keycloak
@@ -92,6 +114,10 @@ export default function SettingsPage() {
             <TabsTrigger value="openvpn" className="gap-2">
               <Globe className="w-4 h-4" />
               OpenVPN
+            </TabsTrigger>
+            <TabsTrigger value="email" className="gap-2">
+              <Mail className="w-4 h-4" />
+              Email
             </TabsTrigger>
             <TabsTrigger value="notifications" className="gap-2">
               <Bell className="w-4 h-4" />
@@ -327,6 +353,190 @@ export default function SettingsPage() {
                     <div className="text-sm text-slate-500">Alert when user certificates are about to expire</div>
                   </div>
                   <Switch defaultChecked />
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="email" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Mail className="w-5 h-5 text-blue-600" />
+                      Email (SMTP) Configuration
+                    </CardTitle>
+                    <CardDescription>
+                      Configure SMTP to send account credentials, welcome emails, and notifications
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {getStatusBadge(connectionStatus.email)}
+                    <Switch
+                      checked={emailSettings.enabled}
+                      onCheckedChange={(value) => setEmailSettings((prev) => ({ ...prev, enabled: value }))}
+                    />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="smtp-host">SMTP Host</Label>
+                    <Input
+                      id="smtp-host"
+                      value={emailSettings.smtpHost}
+                      onChange={(e) => setEmailSettings((prev) => ({ ...prev, smtpHost: e.target.value }))}
+                      placeholder="smtp.gmail.com"
+                    />
+                    <p className="text-xs text-slate-500">Hostname of your SMTP server</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="smtp-port">SMTP Port</Label>
+                    <Input
+                      id="smtp-port"
+                      value={emailSettings.smtpPort}
+                      onChange={(e) => setEmailSettings((prev) => ({ ...prev, smtpPort: e.target.value }))}
+                      placeholder="587"
+                    />
+                    <p className="text-xs text-slate-500">587 (TLS) or 465 (SSL)</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="smtp-user">SMTP Username</Label>
+                    <Input
+                      id="smtp-user"
+                      value={emailSettings.smtpUsername}
+                      onChange={(e) => setEmailSettings((prev) => ({ ...prev, smtpUsername: e.target.value }))}
+                      placeholder="noreply@company.com"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="smtp-pass">SMTP Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="smtp-pass"
+                        type={showSmtpPassword ? "text" : "password"}
+                        value={emailSettings.smtpPassword}
+                        onChange={(e) => setEmailSettings((prev) => ({ ...prev, smtpPassword: e.target.value }))}
+                        placeholder="Enter SMTP password or app password"
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        onClick={() => setShowSmtpPassword((v) => !v)}
+                      >
+                        {showSmtpPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="from-address">From Address</Label>
+                    <Input
+                      id="from-address"
+                      type="email"
+                      value={emailSettings.fromAddress}
+                      onChange={(e) => setEmailSettings((prev) => ({ ...prev, fromAddress: e.target.value }))}
+                      placeholder="noreply@company.com"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="from-name">From Name</Label>
+                    <Input
+                      id="from-name"
+                      value={emailSettings.fromName}
+                      onChange={(e) => setEmailSettings((prev) => ({ ...prev, fromName: e.target.value }))}
+                      placeholder="Admin Portal"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2 space-y-2">
+                    <Label htmlFor="encryption">Encryption</Label>
+                    <Select
+                      value={emailSettings.encryption}
+                      onValueChange={(value) => setEmailSettings((prev) => ({ ...prev, encryption: value }))}
+                    >
+                      <SelectTrigger id="encryption" className="max-w-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="tls">STARTTLS (port 587)</SelectItem>
+                        <SelectItem value="ssl">SSL/TLS (port 465)</SelectItem>
+                        <SelectItem value="none">None (port 25)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 pt-4 border-t">
+                  <Button
+                    variant="outline"
+                    onClick={() => testConnection("email")}
+                    disabled={isTesting === "email"}
+                    className="gap-2"
+                  >
+                    {isTesting === "email" ? (
+                      <Spinner className="w-4 h-4" />
+                    ) : (
+                      <TestTube className="w-4 h-4" />
+                    )}
+                    Send Test Email
+                  </Button>
+                  <Button className="bg-emerald-600 hover:bg-emerald-700 gap-2">
+                    <Save className="w-4 h-4" />
+                    Save Configuration
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Email Triggers</CardTitle>
+                <CardDescription>Choose which events automatically send emails to users</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium text-slate-900">Welcome Email</div>
+                    <div className="text-sm text-slate-500">
+                      Send login credentials when a new account is created
+                    </div>
+                  </div>
+                  <Switch
+                    checked={emailSettings.sendWelcomeEmail}
+                    onCheckedChange={(v) => setEmailSettings((prev) => ({ ...prev, sendWelcomeEmail: v }))}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium text-slate-900">Password Reset</div>
+                    <div className="text-sm text-slate-500">
+                      Send password reset instructions when an admin resets a password
+                    </div>
+                  </div>
+                  <Switch
+                    checked={emailSettings.sendPasswordReset}
+                    onCheckedChange={(v) => setEmailSettings((prev) => ({ ...prev, sendPasswordReset: v }))}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium text-slate-900">Account Notifications</div>
+                    <div className="text-sm text-slate-500">
+                      Notify users when their account is enabled or disabled
+                    </div>
+                  </div>
+                  <Switch
+                    checked={emailSettings.sendAccountNotifications}
+                    onCheckedChange={(v) => setEmailSettings((prev) => ({ ...prev, sendAccountNotifications: v }))}
+                  />
                 </div>
               </CardContent>
             </Card>

@@ -12,7 +12,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -30,26 +29,25 @@ func main() {
 	opts := &rootOptions{}
 	root := &cobra.Command{
 		Use:           "sysctl",
-		Aliases:       []string{"vpnctl"},
 		Short:         "CLI for Keycloak/SSO and OpenVPN operations",
 		Long:          "Thin CLI for automation. Business logic lives in the backend REST API.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Example: `sysctl keycloak user list --output table
 sysctl keycloak group list --output table
-sysctl openvpn access-list list --groupname vanhanh --output table`,
+sysctl openvpn group access-list list --groupname vanhanh --output table`,
 	}
 	root.PersistentFlags().StringVar(
 		&opts.Server,
 		"server",
-		getenvFirst("SYSCTL_SERVER", "VPNCTL_SERVER", "http://127.0.0.1:8080"),
+		getenv("SYSCTL_SERVER", "http://127.0.0.1:8080"),
 		"API server base URL",
 	)
 	root.PersistentFlags().StringVar(
 		&opts.Token,
 		"token",
-		getenvFirst("SYSCTL_TOKEN", "VPNCTL_TOKEN", ""),
-		"Admin API token (or set SYSCTL_TOKEN/VPNCTL_TOKEN)",
+		getenv("SYSCTL_TOKEN", ""),
+		"Admin API token (or set SYSCTL_TOKEN)",
 	)
 	root.PersistentFlags().StringVar(&opts.Output, "output", "json", "Output format: json|table")
 
@@ -229,15 +227,12 @@ func normalizeOpenVPNUserProfiles(items []any) []any {
 			continue
 		}
 		out = append(out, map[string]any{
-			"username":                     formatCell(row["name"]),
-			"group":                        formatCell(row["group"]),
-			"auth_method":                  propertyValue(row["auth_method"]),
-			"deny":                         propertyValue(row["deny"]),
-			"password_defined":             formatCell(row["password_defined"]),
-			"mfa_status":                   formatCell(row["mfa_status"]),
-			"vpn_expire_at":                formatCell(row["vpn_expire_at"]),
-			"last_vpn_login_at":            formatCell(row["last_vpn_login_at"]),
-			"last_vpn_login_lookup_failed": row["last_vpn_login_lookup_failed"],
+			"username":         formatCell(row["name"]),
+			"group":            formatCell(row["group"]),
+			"auth_method":      propertyValue(row["auth_method"]),
+			"deny":             propertyValue(row["deny"]),
+			"password_defined": formatCell(row["password_defined"]),
+			"mfa_status":       formatCell(row["mfa_status"]),
 		})
 	}
 	return out
@@ -324,25 +319,7 @@ func tableRowsAndCols(data any) ([]map[string]string, []string) {
 }
 
 func formatTableCell(column string, v any) string {
-	raw := formatCell(v)
-	switch column {
-	case "last_vpn_login_at":
-		return formatOperatorDateTime(raw)
-	default:
-		return raw
-	}
-}
-
-func formatOperatorDateTime(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	parsed, err := time.Parse(time.RFC3339, raw)
-	if err != nil {
-		return raw
-	}
-	return parsed.Format("02/01/2006 15:04:05 -07")
+	return formatCell(v)
 }
 
 func orderTableColumns(cols []string) []string {
@@ -359,8 +336,6 @@ func orderTableColumns(cols []string) []string {
 		"enabled",
 		"vpn_enabled",
 		"vpn_access_state",
-		"vpn_expire_at",
-		"last_vpn_login_at",
 		"groups",
 		"subject_type",
 		"subject",
@@ -417,17 +392,6 @@ func formatCell(v any) string {
 			return fmt.Sprintf("%v", t)
 		}
 		return string(b)
-	}
-}
-
-func boolCell(v any) bool {
-	switch t := v.(type) {
-	case bool:
-		return t
-	case string:
-		return strings.EqualFold(strings.TrimSpace(t), "true")
-	default:
-		return false
 	}
 }
 
@@ -540,36 +504,47 @@ func findSubcommand(cmd *cobra.Command, name string) *cobra.Command {
 	return nil
 }
 
-func buildAccessListBodyFromFlags(cmd *cobra.Command) (any, error) {
+func resolveAccessListSubject(cmd *cobra.Command, subjectType string) (string, error) {
+	flagName := "username"
+	if subjectType == "group" {
+		flagName = "groupname"
+	}
+	subject, _ := cmd.Flags().GetString(flagName)
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return "", fmt.Errorf("--%s is required", flagName)
+	}
+	return subject, nil
+}
+
+func buildAccessListBodyFromFlags(cmd *cobra.Command, subjectType, subject string) (any, error) {
 	file, _ := cmd.Flags().GetString("file")
 	if strings.TrimSpace(file) != "" {
 		payload, err := os.ReadFile(file)
 		if err != nil {
 			return nil, err
 		}
-		var body any
+		body := map[string]any{}
 		if err := json.Unmarshal(payload, &body); err != nil {
+			return nil, err
+		}
+		if err := applyAccessListOwnerToPayload(body, subjectType, subject); err != nil {
 			return nil, err
 		}
 		return body, nil
 	}
 
-	username, _ := cmd.Flags().GetString("username")
-	groupname, _ := cmd.Flags().GetString("groupname")
 	target, _ := cmd.Flags().GetString("target")
 	port, _ := cmd.Flags().GetString("port")
 
-	username = strings.TrimSpace(username)
-	groupname = strings.TrimSpace(groupname)
+	subject = strings.TrimSpace(subject)
 	target = strings.TrimSpace(target)
 	port = strings.TrimSpace(port)
 
-	switch {
-	case username == "" && groupname == "":
-		return nil, fmt.Errorf("set either --username or --groupname")
-	case username != "" && groupname != "":
-		return nil, fmt.Errorf("set either --username or --groupname, not both")
-	case target == "":
+	if subject == "" {
+		return nil, fmt.Errorf("subject is required")
+	}
+	if target == "" {
 		return nil, fmt.Errorf("--target is required when --file is not used")
 	}
 	if port != "" && !strings.EqualFold(port, "all") && !looksLikeCIDROrIP(target) {
@@ -579,17 +554,67 @@ func buildAccessListBodyFromFlags(cmd *cobra.Command) (any, error) {
 	item := map[string]any{
 		"target": target,
 	}
-	if username != "" {
-		item["username"] = username
-	}
-	if groupname != "" {
-		item["groupname"] = groupname
+	switch subjectType {
+	case "user":
+		item["username"] = subject
+	case "group":
+		item["groupname"] = subject
+	default:
+		return nil, fmt.Errorf("unsupported access-list subject type: %s", subjectType)
 	}
 	if port != "" && !strings.EqualFold(port, "all") {
 		item["service_spec"] = port
 	}
 
 	return map[string]any{"items": []map[string]any{item}}, nil
+}
+
+func applyAccessListOwnerToPayload(body map[string]any, subjectType, subject string) error {
+	rawItems, ok := body["items"]
+	if !ok {
+		return fmt.Errorf("payload file must include items")
+	}
+	items, ok := rawItems.([]any)
+	if !ok {
+		return fmt.Errorf("payload file field items must be an array")
+	}
+	if len(items) == 0 {
+		return fmt.Errorf("payload file field items must not be empty")
+	}
+
+	for idx, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("payload file items[%d] must be objects", idx)
+		}
+		username := strings.TrimSpace(formatCell(item["username"]))
+		groupname := strings.TrimSpace(formatCell(item["groupname"]))
+		switch subjectType {
+		case "user":
+			if groupname != "" {
+				return fmt.Errorf("items[%d].groupname is not allowed for user access-list command", idx)
+			}
+			if username != "" && !strings.EqualFold(username, subject) {
+				return fmt.Errorf("items[%d].username must match --username", idx)
+			}
+			item["username"] = subject
+			delete(item, "groupname")
+		case "group":
+			if username != "" {
+				return fmt.Errorf("items[%d].username is not allowed for group access-list command", idx)
+			}
+			if groupname != "" && !strings.EqualFold(groupname, subject) {
+				return fmt.Errorf("items[%d].groupname must match --groupname", idx)
+			}
+			item["groupname"] = subject
+			delete(item, "username")
+		default:
+			return fmt.Errorf("unsupported access-list subject type: %s", subjectType)
+		}
+	}
+
+	body["items"] = items
+	return nil
 }
 
 func looksLikeCIDROrIP(input string) bool {
@@ -607,15 +632,12 @@ func looksLikeCIDROrIP(input string) bool {
 }
 
 type userListItem struct {
-	ID                       string   `json:"id"`
-	Username                 string   `json:"username"`
-	Email                    string   `json:"email"`
-	DisplayName              string   `json:"display_name"`
-	Enabled                  bool     `json:"enabled"`
-	VPNExpireAt              string   `json:"vpn_expire_at"`
-	LastVPNLoginAt           string   `json:"last_vpn_login_at"`
-	LastVPNLoginLookupFailed bool     `json:"last_vpn_login_lookup_failed"`
-	Groups                   []string `json:"groups"`
+	ID          string   `json:"id"`
+	Username    string   `json:"username"`
+	Email       string   `json:"email"`
+	DisplayName string   `json:"display_name"`
+	Enabled     bool     `json:"enabled"`
+	Groups      []string `json:"groups"`
 }
 
 type userListResponse struct {
@@ -626,76 +648,6 @@ type userReference struct {
 	ID       string
 	Username string
 	Email    string
-}
-
-func hasVPNUserFilters(inactiveDays, expiringDays int) bool {
-	return inactiveDays > 0 || expiringDays > 0
-}
-
-func vpnFilterLocation() *time.Location {
-	return time.FixedZone("UTC+7", 7*60*60)
-}
-
-func filterUserRowsByVPNState(rows []map[string]any, inactiveDays, expiringDays int, now time.Time) []map[string]any {
-	if !hasVPNUserFilters(inactiveDays, expiringDays) {
-		return rows
-	}
-
-	out := make([]map[string]any, 0, len(rows))
-	for _, row := range rows {
-		if rowMatchesVPNFilters(row, inactiveDays, expiringDays, now) {
-			out = append(out, row)
-		}
-	}
-	return out
-}
-
-func rowMatchesVPNFilters(row map[string]any, inactiveDays, expiringDays int, now time.Time) bool {
-	if inactiveDays > 0 && boolCell(row["last_vpn_login_lookup_failed"]) {
-		return false
-	}
-	if inactiveDays > 0 && !matchesVPNInactiveDays(formatCell(row["last_vpn_login_at"]), inactiveDays, now) {
-		return false
-	}
-	if expiringDays > 0 && !matchesVPNExpiringInDays(formatCell(row["vpn_expire_at"]), expiringDays, now) {
-		return false
-	}
-	return true
-}
-
-func matchesVPNInactiveDays(lastLoginAt string, days int, now time.Time) bool {
-	if days <= 0 {
-		return true
-	}
-	lastLoginAt = strings.TrimSpace(lastLoginAt)
-	if lastLoginAt == "" {
-		return true
-	}
-	parsed, err := time.Parse(time.RFC3339, lastLoginAt)
-	if err != nil {
-		return false
-	}
-	cutoff := now.In(vpnFilterLocation()).AddDate(0, 0, -days)
-	return !parsed.In(vpnFilterLocation()).After(cutoff)
-}
-
-func matchesVPNExpiringInDays(expiry string, days int, now time.Time) bool {
-	if days <= 0 {
-		return true
-	}
-	expiry = strings.TrimSpace(expiry)
-	if expiry == "" {
-		return false
-	}
-	loc := vpnFilterLocation()
-	parsed, err := time.ParseInLocation("02/01/2006", expiry, loc)
-	if err != nil {
-		return false
-	}
-	current := now.In(loc)
-	start := time.Date(current.Year(), current.Month(), current.Day(), 0, 0, 0, 0, loc)
-	end := start.AddDate(0, 0, days-1)
-	return !parsed.Before(start) && !parsed.After(end)
 }
 
 type groupListItem struct {
@@ -891,10 +843,9 @@ func parseStrictBoolFlag(raw, flagName string) (bool, error) {
 	}
 }
 
-func validateIdentitySourceCreateFlags(identitySource, userType, companyName, userExpiryVPN, onboardDate, phone, department, manager string) error {
+func validateIdentitySourceCreateFlags(identitySource, userType, companyName, onboardDate, phone, department, manager string) error {
 	identitySource = strings.ToLower(strings.TrimSpace(identitySource))
 	userType = strings.ToLower(strings.TrimSpace(userType))
-	userExpiryVPN = strings.TrimSpace(userExpiryVPN)
 	onboardDate = strings.TrimSpace(onboardDate)
 
 	switch identitySource {
@@ -938,11 +889,6 @@ func validateIdentitySourceCreateFlags(identitySource, userType, companyName, us
 			return fmt.Errorf("--onboard-date must be a valid date in dd/MM/yyyy")
 		}
 	}
-	if userExpiryVPN != "" {
-		if _, err := inputvalidate.NormalizeDDMMYYYY(userExpiryVPN); err != nil {
-			return fmt.Errorf("--user-expiry-vpn must be a valid date in dd/MM/yyyy")
-		}
-	}
 
 	return nil
 }
@@ -962,7 +908,6 @@ func buildUserCreatePayload(cmd *cobra.Command, forcedIdentitySource string) (ma
 	fullName, _ := cmd.Flags().GetString("full-name")
 	userType, _ := cmd.Flags().GetString("user-type")
 	companyName, _ := cmd.Flags().GetString("company-name")
-	userExpiryVPN, _ := cmd.Flags().GetString("user-expiry-vpn")
 	groups, _ := cmd.Flags().GetStringSlice("groups")
 	phone, _ := cmd.Flags().GetString("phone")
 	department, _ := cmd.Flags().GetString("department")
@@ -977,7 +922,7 @@ func buildUserCreatePayload(cmd *cobra.Command, forcedIdentitySource string) (ma
 	}
 	identitySource = strings.ToLower(strings.TrimSpace(identitySource))
 	userType = strings.ToLower(strings.TrimSpace(userType))
-	if err := validateIdentitySourceCreateFlags(identitySource, userType, companyName, userExpiryVPN, onboardDate, phone, department, manager); err != nil {
+	if err := validateIdentitySourceCreateFlags(identitySource, userType, companyName, onboardDate, phone, department, manager); err != nil {
 		return nil, err
 	}
 	if identitySource == "ldap" || identitySource == "local" {
@@ -999,9 +944,6 @@ func buildUserCreatePayload(cmd *cobra.Command, forcedIdentitySource string) (ma
 		"State":       state,
 		"userType":    userType,
 		"companyName": companyName,
-	}
-	if strings.TrimSpace(userExpiryVPN) != "" {
-		attributes["userExpiryVPN"] = userExpiryVPN
 	}
 
 	return map[string]any{
@@ -1046,7 +988,6 @@ func configureUserCreateFlags(create *cobra.Command, includeIdentityFlag bool) {
 	create.Flags().String("state", "", "attributes.State")
 	create.Flags().String("user-type", "", "attributes.userType (employee|partner|outsource)")
 	create.Flags().String("company-name", "", "attributes.companyName")
-	create.Flags().String("user-expiry-vpn", "", "attributes.userExpiryVPN (dd/MM/yyyy), optional metadata for later VPN provisioning")
 	create.Flags().StringSlice("groups", []string{}, "Keycloak group paths or IDs, separated by commas")
 	_ = create.MarkFlagRequired("username")
 	_ = create.MarkFlagRequired("email")
@@ -1198,12 +1139,10 @@ func buildUserImportPayload(row map[string]string, defaultIdentitySource string)
 	if identitySource == "ldap" || identitySource == "local" {
 		passwordTemporary = true
 	}
-	userExpiryVPN := csvValue(row, "userExpiryVPN", "user_expiry_vpn")
 	if err := validateIdentitySourceCreateFlags(
 		identitySource,
 		csvValue(row, "userType", "user_type"),
 		csvValue(row, "companyName", "company_name"),
-		userExpiryVPN,
 		csvValue(row, "onboardDate", "onboard_date", "onboard"),
 		csvValue(row, "phone"),
 		csvValue(row, "department"),
@@ -1230,12 +1169,6 @@ func buildUserImportPayload(row map[string]string, defaultIdentitySource string)
 			return nil, fmt.Errorf("row %s: onboardDate must be a valid date in dd/MM/yyyy", csvValue(row, "_row_number"))
 		}
 		attributes["onboardDate"] = normalizedOnboardDate
-	}
-	if strings.TrimSpace(userExpiryVPN) != "" {
-		if _, err := inputvalidate.NormalizeDDMMYYYY(userExpiryVPN); err != nil {
-			return nil, fmt.Errorf("row %s: userExpiryVPN must be a valid date in dd/MM/yyyy", csvValue(row, "_row_number"))
-		}
-		attributes["userExpiryVPN"] = userExpiryVPN
 	}
 
 	return map[string]any{
@@ -1281,7 +1214,6 @@ func userImportTemplateHeaders() []string {
 		"State",
 		"userType",
 		"companyName",
-		"userExpiryVPN",
 	}
 }
 
@@ -1310,7 +1242,6 @@ func userImportTemplateRows(preset string) ([][]string, error) {
 		"",
 		"partner",
 		"TEST",
-		"20/04/2026",
 	}
 	ldapRow := []string{
 		"test.ldap1",
@@ -1335,7 +1266,6 @@ func userImportTemplateRows(preset string) ([][]string, error) {
 		"Tòa nhà MobiFone, Hà Nội",
 		"",
 		"employee",
-		"",
 		"",
 	}
 
@@ -1412,16 +1342,11 @@ func writeOpenVPNUserExportCSV(filePath string, rows []map[string]any) error {
 	writer := csv.NewWriter(f)
 	headers := []string{
 		"username",
-		"email",
-		"display_name",
 		"group",
 		"auth_method",
 		"deny",
 		"password_defined",
 		"mfa_status",
-		"enabled",
-		"vpn_expire_at",
-		"last_vpn_login_at",
 	}
 	if err := writer.Write(headers); err != nil {
 		return err
@@ -1448,7 +1373,7 @@ func userCmd(opts *rootOptions) *cobra.Command {
 		opts,
 		"create",
 		"Create user",
-		"Create a Keycloak user. Leave --identity-source empty to use the current realm behavior. Set --identity-source local|ldap to ask the backend to switch the configured LDAP provider syncRegistrations flag before user creation and restore it afterward. If --password is omitted, the backend generates a random temporary password automatically. Use --notification-email if the account-created notification should go to a different mailbox than the account email. Use --user-expiry-vpn when you want to store VPN expiry metadata on Keycloak for later OpenVPN provisioning flows.",
+		"Create a Keycloak user. Leave --identity-source empty to use the current realm behavior. Set --identity-source local|ldap to ask the backend to switch the configured LDAP provider syncRegistrations flag before user creation and restore it afterward. If --password is omitted, the backend generates a random temporary password automatically. Use --notification-email if the account-created notification should go to a different mailbox than the account email.",
 		`sysctl keycloak user create --username test.hieuny --email test.hieuny@mbfs.vn --first-name "Hiếu" --last-name "Nguyễn Y" --full-name "Nguyễn Y Hiếu" --enabled --email-verified
 sysctl keycloak user create --username local.user --email local.user@example.com --first-name "Local" --last-name "User" --full-name "Local User" --password 'Mbfs@111' --identity-source local`,
 		"",
@@ -1475,7 +1400,7 @@ sysctl keycloak user create --username local.user --email local.user@example.com
 	importCSV := &cobra.Command{
 		Use:   "import-csv",
 		Short: "Import users from CSV",
-		Long:  "Import users from a CSV file by calling the same backend user-create API for each row. Supported headers include username,email,notification_email,first_name,last_name,display_name,password,password_temporary,enabled,email_verified,identity_source,groups,required_actions,fullName,phone,department,manager,employeeID,onboardDate,workAddress,State,userType,companyName,userExpiryVPN. For multi-value columns such as groups and required_actions, separate values with | or ; inside the CSV cell. LDAP rows require userType=employee and phone/department/manager. Local rows require userType=partner|outsource and companyName. onboardDate and userExpiryVPN, when set, must use dd/MM/yyyy. For both local and ldap rows, password_temporary is forced to true. If the password column is left empty, the backend generates a random temporary password. If notification_email is set, the account-created email goes there instead of the account email.",
+		Long:  "Import users from a CSV file by calling the same backend user-create API for each row. Supported headers include username,email,notification_email,first_name,last_name,display_name,password,password_temporary,enabled,email_verified,identity_source,groups,required_actions,fullName,phone,department,manager,employeeID,onboardDate,workAddress,State,userType,companyName. For multi-value columns such as groups and required_actions, separate values with | or ; inside the CSV cell. LDAP rows require userType=employee and phone/department/manager. Local rows require userType=partner|outsource and companyName. onboardDate, when set, must use dd/MM/yyyy. For both local and ldap rows, password_temporary is forced to true. If the password column is left empty, the backend generates a random temporary password. If notification_email is set, the account-created email goes there instead of the account email.",
 		Example: `sysctl keycloak user import-csv --file examples/users.import.csv
 sysctl keycloak user import-csv --file users.csv
 sysctl keycloak user import-csv --file ldap-users.csv --identity-source ldap
@@ -1657,37 +1582,16 @@ sysctl keycloak user get --id 4e7f9d9a-8e2b-4d5a-9f71-8a6c592a9b11`,
 		Use:   "list",
 		Short: "List users",
 		Example: `sysctl keycloak user list
-sysctl keycloak user list --q alice --limit 20 --offset 0
-sysctl keycloak user list --vpn-inactive-days 30 --output table
-sysctl keycloak user list --vpn-expiring-in-days 7 --output table`,
+sysctl keycloak user list --q alice --limit 20 --offset 0`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			q, _ := cmd.Flags().GetString("q")
 			limit, _ := cmd.Flags().GetInt("limit")
 			offset, _ := cmd.Flags().GetInt("offset")
 			all, _ := cmd.Flags().GetBool("all")
-			inactiveDays, _ := cmd.Flags().GetInt("vpn-inactive-days")
-			expiringDays, _ := cmd.Flags().GetInt("vpn-expiring-in-days")
-			if hasVPNUserFilters(inactiveDays, expiringDays) {
-				all = true
-				offset = 0
-			}
 			if !all {
 				b, _, err := fetchUsers(opts, q, limit, offset)
 				if err != nil {
 					return err
-				}
-				if hasVPNUserFilters(inactiveDays, expiringDays) {
-					var page struct {
-						Data []map[string]any `json:"data"`
-					}
-					if err := json.Unmarshal(b, &page); err != nil {
-						return err
-					}
-					page.Data = filterUserRowsByVPNState(page.Data, inactiveDays, expiringDays, time.Now())
-					b, _ = json.Marshal(map[string]any{
-						"data":     page.Data,
-						"warnings": extractWarnings(b),
-					})
 				}
 				printOutput(opts.Output, b)
 				return nil
@@ -1737,7 +1641,6 @@ sysctl keycloak user list --vpn-expiring-in-days 7 --output table`,
 				currentOffset += limit
 			}
 
-			allRows = filterUserRowsByVPNState(allRows, inactiveDays, expiringDays, time.Now())
 			finalBody, _ := json.Marshal(map[string]any{
 				"data":     allRows,
 				"warnings": warnings,
@@ -1750,8 +1653,6 @@ sysctl keycloak user list --vpn-expiring-in-days 7 --output table`,
 	list.Flags().Int("limit", 50, "Limit")
 	list.Flags().Int("offset", 0, "Offset")
 	list.Flags().Bool("all", false, "Fetch all users by auto-pagination (ignore offset)")
-	list.Flags().Int("vpn-inactive-days", 0, "Filter users who have not logged into VPN for at least N days; includes users with no VPN login yet")
-	list.Flags().Int("vpn-expiring-in-days", 0, "Filter users whose VPN expiry date is within the next N days")
 
 	search := &cobra.Command{
 		Use:   "search",
@@ -1810,7 +1711,7 @@ sysctl keycloak user update --username test.hieuny --display-name "Alice N" --en
 				}
 				payload["enabled"] = enabledValue
 			}
-			b, _, err := api(opts).Do(context.Background(), "PATCH", "/api/v1/keycloak/users/"+resolvedID, payload)
+			b, _, err := api(opts).Do(context.Background(), "PUT", "/api/v1/keycloak/users/"+resolvedID, payload)
 			if err != nil {
 				return err
 			}
@@ -1840,7 +1741,7 @@ sysctl keycloak user enable --id <id>`,
 			if err != nil {
 				return err
 			}
-			b, _, err := api(opts).Do(context.Background(), "PATCH", "/api/v1/keycloak/users/"+resolvedID, map[string]any{
+			b, _, err := api(opts).Do(context.Background(), "PUT", "/api/v1/keycloak/users/"+resolvedID, map[string]any{
 				"enabled": true,
 			})
 			if err != nil {
@@ -1869,7 +1770,7 @@ sysctl keycloak user disable --id <id>`,
 			if err != nil {
 				return err
 			}
-			b, _, err := api(opts).Do(context.Background(), "PATCH", "/api/v1/keycloak/users/"+resolvedID, map[string]any{
+			b, _, err := api(opts).Do(context.Background(), "PUT", "/api/v1/keycloak/users/"+resolvedID, map[string]any{
 				"enabled": false,
 			})
 			if err != nil {
@@ -1984,7 +1885,7 @@ sysctl keycloak group update --id <id> --new-name platform-vpn`, RunE: func(cmd 
 		if err != nil {
 			return err
 		}
-		b, _, err := api(opts).Do(context.Background(), "PATCH", "/api/v1/keycloak/groups/"+resolvedID, map[string]any{"name": newName})
+		b, _, err := api(opts).Do(context.Background(), "PUT", "/api/v1/keycloak/groups/"+resolvedID, map[string]any{"name": newName})
 		if err != nil {
 			return err
 		}
@@ -2062,103 +1963,107 @@ sysctl keycloak group remove-member --id <group-id> --user-id <user-id>`, RunE: 
 	return cmd
 }
 
-func openvpnCmd(opts *rootOptions) *cobra.Command {
-	cmd := &cobra.Command{Use: "openvpn", Short: "OpenVPN operations"}
+func buildOpenVPNAccessListCommand(opts *rootOptions, subjectType string) *cobra.Command {
+	subjectFlag := "username"
+	subjectLabel := "user"
+	subjectExample := "test.hieuny"
+	basePath := "/api/v1/openvpn/users"
+	switch subjectType {
+	case "user":
+	case "group":
+		subjectFlag = "groupname"
+		subjectLabel = "group"
+		subjectExample = "vanhanh"
+		basePath = "/api/v1/openvpn/groups"
+	default:
+		panic("unsupported openvpn access-list subject type")
+	}
 
-	accessList := &cobra.Command{Use: "access-list", Short: "Access-list lifecycle"}
-	listAccess := &cobra.Command{Use: "list", Short: "List unified access entries (IP/CIDR + domain) for user/group", Long: "List the effective OpenVPN entries for exactly one user or one group. The table merges IP/CIDR access-list rows with domain-routing rules so you can inspect one subject in a single place.", Example: `sysctl --output table openvpn access-list list --username test.hieuny
-sysctl --output table openvpn access-list list --groupname vanhanh`, RunE: func(cmd *cobra.Command, _ []string) error {
-		username, _ := cmd.Flags().GetString("username")
-		groupname, _ := cmd.Flags().GetString("groupname")
-		subjectType, _ := cmd.Flags().GetString("subject-type")
-		if subjectType != "" && subjectType != "user" && subjectType != "group" {
-			return fmt.Errorf("--subject-type must be user or group")
-		}
-		if subjectType == "" {
-			switch {
-			case username != "" && groupname == "":
-				subjectType = "user"
-			case groupname != "" && username == "":
-				subjectType = "group"
-			case username != "" && groupname != "":
-				return fmt.Errorf("set either --username or --groupname (or pass explicit --subject-type)")
-			}
-		}
-		if subjectType == "user" && username == "" && groupname != "" {
-			return fmt.Errorf("--subject-type=user requires --username")
-		}
-		if subjectType == "group" && groupname == "" && username != "" {
-			return fmt.Errorf("--subject-type=group requires --groupname")
-		}
-		if username == "" && groupname == "" && subjectType == "" {
-			return fmt.Errorf("access-list is scoped to user/group; set --username or --groupname or --subject-type")
-		}
-		params := url.Values{}
-		if username != "" {
-			params.Set("username", username)
-		}
-		if groupname != "" {
-			params.Set("groupname", groupname)
-		}
-		if subjectType != "" {
-			params.Set("subject_type", subjectType)
-		}
-		path := "/api/v1/openvpn/access-lists?" + params.Encode()
-		b, _, err := api(opts).Do(context.Background(), "GET", path, nil)
-		if err != nil {
-			return err
-		}
-		printOutput(opts.Output, b)
-		return nil
-	}}
-	listAccess.Flags().String("username", "", "Filter by username")
-	listAccess.Flags().String("groupname", "", "Filter by groupname")
-	listAccess.Flags().String("subject-type", "", "Filter subject type: user|group")
-	accessList.AddCommand(listAccess)
+	accessList := &cobra.Command{
+		Use:   "access-list",
+		Short: fmt.Sprintf("Access-list lifecycle for %s", subjectLabel),
+	}
 
-	for _, m := range []string{"append", "remove"} {
-		mode := m
-		longText := "Use one payload for both IP/CIDR and domain entries. `target` auto-detects IP/CIDR -> access list, otherwise domain -> rules. Omit `--port` or set `--port all` to apply to all ports."
-		switch mode {
-		case "append":
-			longText = longText + " `append` means add or update only the submitted entry without removing other existing entries. Submit one subject per command. Do not mix IP/CIDR and domain targets in the same request. For user domain targets, the backend can bootstrap a ruleset if missing. For group domain targets, the group must already have an assigned ruleset in OpenVPN AS."
-		case "remove":
-			longText = longText + " `remove` means delete only the matching submitted entry. Submit one subject per command. Do not mix IP/CIDR and domain targets in the same request."
-		}
-		c := &cobra.Command{Use: mode, Short: strings.Title(mode) + " unified access entries", Example: fmt.Sprintf(`sysctl openvpn access-list %s --groupname vanhanh --target 10.0.0.0/8
-sysctl openvpn access-list %s --groupname vanhanh --target 14.238.3.72/32 --port tcp:443
-sysctl openvpn access-list %s --groupname vanhanh --target ndc.dichvucong.gov.vn
-sysctl openvpn access-list %s --groupname vanhanh --file access-list.json`, mode, mode, mode, mode), Long: longText, RunE: func(cmd *cobra.Command, _ []string) error {
-			body, err := buildAccessListBodyFromFlags(cmd)
+	listAccess := &cobra.Command{
+		Use:   "list",
+		Short: fmt.Sprintf("List unified access entries for one %s", subjectLabel),
+		Long:  fmt.Sprintf("List the effective OpenVPN entries for exactly one %s. The table merges IP/CIDR access-list rows with domain-routing rules so you can inspect one owner in a single place.", subjectLabel),
+		Example: fmt.Sprintf(
+			"sysctl --output table openvpn %s access-list list --%s %s",
+			subjectType, subjectFlag, subjectExample,
+		),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			subject, err := resolveAccessListSubject(cmd, subjectType)
 			if err != nil {
 				return err
 			}
-			_, _, err = api(opts).Do(context.Background(), "POST", "/api/v1/openvpn/access-lists:"+mode, body)
-			return err
-		}}
+			path := fmt.Sprintf("%s/%s/access-lists", basePath, url.PathEscape(subject))
+			b, _, err := api(opts).Do(context.Background(), "GET", path, nil)
+			if err != nil {
+				return err
+			}
+			printOutput(opts.Output, b)
+			return nil
+		},
+	}
+	listAccess.Flags().String(subjectFlag, "", fmt.Sprintf("Filter by %s", subjectFlag))
+	_ = listAccess.MarkFlagRequired(subjectFlag)
+	accessList.AddCommand(listAccess)
+
+	for _, mode := range []string{"append", "remove"} {
+		mode := mode
+		modeTitle := "Append"
+		longText := "Use one payload for both IP/CIDR and domain entries. `target` auto-detects IP/CIDR -> access list, otherwise domain -> rules. Omit `--port` or set `--port all` to apply to all ports."
+		if mode == "append" {
+			longText += " `append` means add or update only the submitted entry without removing other existing entries. Do not mix IP/CIDR and domain targets in the same request. For user domain targets, the backend can bootstrap a ruleset if missing. For group domain targets, the group must already have an assigned ruleset in OpenVPN AS."
+		} else {
+			modeTitle = "Remove"
+			longText += " `remove` means delete only the matching submitted entry. Do not mix IP/CIDR and domain targets in the same request."
+		}
+
+		c := &cobra.Command{
+			Use:   mode,
+			Short: modeTitle + " unified access entries",
+			Example: fmt.Sprintf(`sysctl openvpn %[1]s access-list %[2]s --%[3]s %[4]s --target 10.0.0.0/8
+sysctl openvpn %[1]s access-list %[2]s --%[3]s %[4]s --target ndc.dichvucong.gov.vn
+sysctl openvpn %[1]s access-list %[2]s --%[3]s %[4]s --file access-list.json`, subjectType, mode, subjectFlag, subjectExample),
+			Long: longText,
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				subject, err := resolveAccessListSubject(cmd, subjectType)
+				if err != nil {
+					return err
+				}
+				body, err := buildAccessListBodyFromFlags(cmd, subjectType, subject)
+				if err != nil {
+					return err
+				}
+				path := fmt.Sprintf("%s/%s/access-lists:%s", basePath, url.PathEscape(subject), mode)
+				_, _, err = api(opts).Do(context.Background(), "POST", path, body)
+				return err
+			},
+		}
 		c.Flags().String("file", "", "JSON payload file")
-		c.Flags().String("username", "", "Apply to username")
-		c.Flags().String("groupname", "", "Apply to groupname")
+		c.Flags().String(subjectFlag, "", fmt.Sprintf("Apply to %s", subjectFlag))
 		c.Flags().String("target", "", "Target domain or IP/CIDR")
 		c.Flags().String("port", "", "Port filter for IP/CIDR entries, for example tcp:443 or udp:53; omit or set all for all ports")
+		_ = c.MarkFlagRequired(subjectFlag)
 		accessList.AddCommand(c)
 	}
+
+	return accessList
+}
+
+func openvpnCmd(opts *rootOptions) *cobra.Command {
+	cmd := &cobra.Command{Use: "openvpn", Short: "OpenVPN operations"}
 
 	ovpnUsers := &cobra.Command{Use: "user", Short: "OpenVPN users"}
 	ovpnUserList := &cobra.Command{Use: "list", Short: "List OpenVPN users", Example: `sysctl openvpn user list
 sysctl openvpn user list --q test --limit 100 --offset 0
-sysctl openvpn user list --all --output table
-sysctl openvpn user list --vpn-inactive-days 30 --output table
-sysctl openvpn user list --vpn-expiring-in-days 7 --output table`, RunE: func(cmd *cobra.Command, _ []string) error {
+sysctl openvpn user list --all --output table`, RunE: func(cmd *cobra.Command, _ []string) error {
 		q, _ := cmd.Flags().GetString("q")
 		limit, _ := cmd.Flags().GetInt("limit")
 		offset, _ := cmd.Flags().GetInt("offset")
 		all, _ := cmd.Flags().GetBool("all")
-		inactiveDays, _ := cmd.Flags().GetInt("vpn-inactive-days")
-		expiringDays, _ := cmd.Flags().GetInt("vpn-expiring-in-days")
-		if hasVPNUserFilters(inactiveDays, expiringDays) {
-			all = true
-		}
 		if all {
 			offset = 0
 		}
@@ -2172,32 +2077,6 @@ sysctl openvpn user list --vpn-expiring-in-days 7 --output table`, RunE: func(cm
 		if err != nil {
 			return err
 		}
-		if hasVPNUserFilters(inactiveDays, expiringDays) {
-			var page struct {
-				Data map[string]any `json:"data"`
-			}
-			if err := json.Unmarshal(b, &page); err != nil {
-				return err
-			}
-			rawProfiles, _ := page.Data["profiles"].([]any)
-			rows := make([]map[string]any, 0, len(rawProfiles))
-			for _, item := range rawProfiles {
-				if row, ok := item.(map[string]any); ok {
-					rows = append(rows, row)
-				}
-			}
-			rows = filterUserRowsByVPNState(rows, inactiveDays, expiringDays, time.Now())
-			profiles := make([]any, 0, len(rows))
-			for _, row := range rows {
-				profiles = append(profiles, row)
-			}
-			page.Data["profiles"] = profiles
-			page.Data["total"] = len(rows)
-			b, _ = json.Marshal(map[string]any{
-				"data":     page.Data,
-				"warnings": extractWarnings(b),
-			})
-		}
 		printOutput(opts.Output, b)
 		return nil
 	}}
@@ -2205,8 +2084,6 @@ sysctl openvpn user list --vpn-expiring-in-days 7 --output table`, RunE: func(cm
 	ovpnUserList.Flags().Int("limit", 50, "Limit")
 	ovpnUserList.Flags().Int("offset", 0, "Offset")
 	ovpnUserList.Flags().Bool("all", false, "Fetch all users by auto-pagination (ignore offset)")
-	ovpnUserList.Flags().Int("vpn-inactive-days", 0, "Filter users who have not logged into VPN for at least N days; includes users with no VPN login yet")
-	ovpnUserList.Flags().Int("vpn-expiring-in-days", 0, "Filter users whose VPN expiry date is within the next N days")
 	ovpnUsers.AddCommand(ovpnUserList)
 
 	ovpnUserCreateFromKeycloak := &cobra.Command{
@@ -2246,13 +2123,9 @@ sysctl openvpn user create-from-keycloak --user-id <keycloak-user-id> --vpn-grou
 	ovpnUsers.AddCommand(ovpnUserCreateFromKeycloak)
 
 	ovpnUserExport := &cobra.Command{Use: "export", Short: "Export OpenVPN users", Long: "Export OpenVPN users from OpenVPN API. Without --file, the command prints JSON/table to stdout. With --file, it writes a CSV file.", Example: `sysctl openvpn user export --file openvpn-users.csv
-sysctl openvpn user export --q test --output table
-sysctl openvpn user export --vpn-inactive-days 30 --file inactive-users.csv
-sysctl openvpn user export --vpn-expiring-in-days 7 --file expiring-users.csv`, RunE: func(cmd *cobra.Command, _ []string) error {
+sysctl openvpn user export --q test --output table`, RunE: func(cmd *cobra.Command, _ []string) error {
 		q, _ := cmd.Flags().GetString("q")
 		filePath, _ := cmd.Flags().GetString("file")
-		inactiveDays, _ := cmd.Flags().GetInt("vpn-inactive-days")
-		expiringDays, _ := cmd.Flags().GetInt("vpn-expiring-in-days")
 		params := url.Values{}
 		params.Set("q", q)
 		path := "/api/v1/openvpn/users:export?" + params.Encode()
@@ -2273,16 +2146,6 @@ sysctl openvpn user export --vpn-expiring-in-days 7 --file expiring-users.csv`, 
 		if err := json.Unmarshal(b, &resp); err != nil {
 			return err
 		}
-		resp.Data = filterUserRowsByVPNState(resp.Data, inactiveDays, expiringDays, time.Now())
-
-		if strings.TrimSpace(filePath) == "" {
-			out, _ := json.Marshal(map[string]any{
-				"data":     resp.Data,
-				"warnings": extractWarnings(b),
-			})
-			printOutput(opts.Output, out)
-			return nil
-		}
 		if err := writeOpenVPNUserExportCSV(filePath, resp.Data); err != nil {
 			return err
 		}
@@ -2291,9 +2154,8 @@ sysctl openvpn user export --vpn-expiring-in-days 7 --file expiring-users.csv`, 
 	}}
 	ovpnUserExport.Flags().String("q", "", "Search by username substring before export")
 	ovpnUserExport.Flags().String("file", "", "CSV output file path")
-	ovpnUserExport.Flags().Int("vpn-inactive-days", 0, "Filter users who have not logged into VPN for at least N days; includes users with no VPN login yet")
-	ovpnUserExport.Flags().Int("vpn-expiring-in-days", 0, "Filter users whose VPN expiry date is within the next N days")
 	ovpnUsers.AddCommand(ovpnUserExport)
+	ovpnUsers.AddCommand(buildOpenVPNAccessListCommand(opts, "user"))
 
 	ovpnGroups := &cobra.Command{Use: "group", Short: "OpenVPN groups"}
 	ovpnGroupList := &cobra.Command{Use: "list", Short: "List OpenVPN groups", Example: `sysctl openvpn group list
@@ -2327,8 +2189,9 @@ sysctl openvpn group list --all --output table`, RunE: func(cmd *cobra.Command, 
 	ovpnGroupList.Flags().Bool("all", false, "Fetch all groups by auto-pagination (ignore offset)")
 	ovpnGroupList.Flags().Bool("enumerate-members", false, "Include group members list")
 	ovpnGroups.AddCommand(ovpnGroupList)
+	ovpnGroups.AddCommand(buildOpenVPNAccessListCommand(opts, "group"))
 
-	cmd.AddCommand(accessList, ovpnUsers, ovpnGroups)
+	cmd.AddCommand(ovpnUsers, ovpnGroups)
 	return cmd
 }
 
@@ -2337,11 +2200,4 @@ func getenv(key, def string) string {
 		return v
 	}
 	return def
-}
-
-func getenvFirst(primary, secondary, def string) string {
-	if v := os.Getenv(primary); strings.TrimSpace(v) != "" {
-		return v
-	}
-	return getenv(secondary, def)
 }

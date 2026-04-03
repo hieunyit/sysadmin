@@ -3,13 +3,12 @@ package main
 import (
 	"encoding/json"
 	"testing"
-	"time"
 )
 
 func TestValidateIdentitySourceCreateFlagsLocal(t *testing.T) {
 	t.Parallel()
 
-	err := validateIdentitySourceCreateFlags("local", "", "", "", "", "", "", "")
+	err := validateIdentitySourceCreateFlags("local", "", "", "", "", "", "")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -21,7 +20,7 @@ func TestValidateIdentitySourceCreateFlagsLocal(t *testing.T) {
 func TestValidateIdentitySourceCreateFlagsLDAP(t *testing.T) {
 	t.Parallel()
 
-	err := validateIdentitySourceCreateFlags("ldap", "partner", "TEST", "", "", "", "", "")
+	err := validateIdentitySourceCreateFlags("ldap", "partner", "TEST", "", "", "", "")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -33,36 +32,39 @@ func TestValidateIdentitySourceCreateFlagsLDAP(t *testing.T) {
 func TestValidateIdentitySourceCreateFlagsUserTypeRules(t *testing.T) {
 	t.Parallel()
 
-	if err := validateIdentitySourceCreateFlags("local", "employee", "TEST", "", "", "", "", ""); err == nil {
+	if err := validateIdentitySourceCreateFlags("local", "employee", "TEST", "", "", "", ""); err == nil {
 		t.Fatal("expected local userType error, got nil")
 	}
-	if err := validateIdentitySourceCreateFlags("ldap", "partner", "", "", "", "0987654321", "Ops", "CN=Manager"); err == nil {
+	if err := validateIdentitySourceCreateFlags("ldap", "partner", "", "", "0987654321", "Ops", "CN=Manager"); err == nil {
 		t.Fatal("expected ldap userType error, got nil")
 	}
 }
 
-func TestValidateIdentitySourceCreateFlagsValidatesExpiryFormat(t *testing.T) {
+func TestValidateIdentitySourceCreateFlagsValidatesOnboardDateFormat(t *testing.T) {
 	t.Parallel()
 
-	if err := validateIdentitySourceCreateFlags("local", "partner", "TEST", "20/04/2026", "", "", "", ""); err != nil {
+	if err := validateIdentitySourceCreateFlags("local", "partner", "TEST", "20/04/2026", "", "", ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := validateIdentitySourceCreateFlags("local", "partner", "TEST", "2026-04-20", "", "", "", ""); err == nil {
-		t.Fatal("expected invalid expiry format error, got nil")
+	if err := validateIdentitySourceCreateFlags("local", "partner", "TEST", "2026-04-20", "", "", ""); err == nil {
+		t.Fatal("expected invalid onboard date format error, got nil")
 	}
 }
 
-func TestNormalizeOpenVPNUserProfilesIncludesVPNExpireAt(t *testing.T) {
+func TestNormalizeOpenVPNUserProfilesDropsLegacyCrossFields(t *testing.T) {
 	t.Parallel()
 
 	items := []any{
 		map[string]any{
 			"name":              "alice",
 			"group":             "vpn-users",
+			"auth_method":       map[string]any{"value": "local"},
+			"deny":              map[string]any{"value": "false"},
 			"password_defined":  "true",
 			"mfa_status":        "disabled",
 			"vpn_expire_at":     "20/04/2026",
 			"last_vpn_login_at": "2026-02-04T10:10:33Z",
+			"admin":             true,
 		},
 	}
 
@@ -74,87 +76,23 @@ func TestNormalizeOpenVPNUserProfilesIncludesVPNExpireAt(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected normalized row map, got %T", out[0])
 	}
-	if got := row["vpn_expire_at"]; got != "20/04/2026" {
-		t.Fatalf("expected vpn_expire_at to be preserved, got %#v", got)
+	if got := row["username"]; got != "alice" {
+		t.Fatalf("expected username to be mapped, got %#v", got)
 	}
-	if got := row["last_vpn_login_at"]; got != "2026-02-04T10:10:33Z" {
-		t.Fatalf("expected last_vpn_login_at to be preserved, got %#v", got)
+	if got := row["auth_method"]; got != "local" {
+		t.Fatalf("expected auth_method to be mapped, got %#v", got)
+	}
+	if got := row["deny"]; got != "false" {
+		t.Fatalf("expected deny to be mapped, got %#v", got)
+	}
+	if _, ok := row["vpn_expire_at"]; ok {
+		t.Fatalf("expected vpn_expire_at to be removed")
+	}
+	if _, ok := row["last_vpn_login_at"]; ok {
+		t.Fatalf("expected last_vpn_login_at to be removed")
 	}
 	if _, ok := row["admin"]; ok {
 		t.Fatalf("expected admin to be omitted from normalized row")
-	}
-}
-
-func TestFormatTableCellFormatsLastVPNLoginAtForOperators(t *testing.T) {
-	t.Parallel()
-
-	got := formatTableCell("last_vpn_login_at", "2026-02-04T11:50:33+07:00")
-	if got != "04/02/2026 11:50:33 +07" {
-		t.Fatalf("unexpected formatted datetime: %q", got)
-	}
-}
-
-func TestMatchesVPNInactiveDaysIncludesNeverLoggedIn(t *testing.T) {
-	t.Parallel()
-
-	now := time.Date(2026, 3, 30, 10, 0, 0, 0, vpnFilterLocation())
-	if !matchesVPNInactiveDays("", 30, now) {
-		t.Fatal("expected empty last login to be treated as inactive")
-	}
-	if !matchesVPNInactiveDays("2026-02-20T10:00:00+07:00", 30, now) {
-		t.Fatal("expected old login to match inactive filter")
-	}
-	if matchesVPNInactiveDays("2026-03-20T10:00:00+07:00", 30, now) {
-		t.Fatal("expected recent login to not match inactive filter")
-	}
-}
-
-func TestMatchesVPNExpiringInDays(t *testing.T) {
-	t.Parallel()
-
-	now := time.Date(2026, 3, 30, 10, 0, 0, 0, vpnFilterLocation())
-	if !matchesVPNExpiringInDays("30/03/2026", 7, now) {
-		t.Fatal("expected today expiry to match")
-	}
-	if !matchesVPNExpiringInDays("05/04/2026", 7, now) {
-		t.Fatal("expected expiry within 7 days to match")
-	}
-	if matchesVPNExpiringInDays("06/04/2026", 7, now) {
-		t.Fatal("expected expiry beyond 7 days to not match")
-	}
-	if matchesVPNExpiringInDays("29/03/2026", 7, now) {
-		t.Fatal("expected expired user to not match expiring filter")
-	}
-}
-
-func TestFilterUserRowsByVPNState(t *testing.T) {
-	t.Parallel()
-
-	now := time.Date(2026, 3, 30, 10, 0, 0, 0, vpnFilterLocation())
-	rows := []map[string]any{
-		{
-			"username":          "inactive-expiring",
-			"last_vpn_login_at": "2026-02-20T10:00:00+07:00",
-			"vpn_expire_at":     "05/04/2026",
-		},
-		{
-			"username":          "active-expiring",
-			"last_vpn_login_at": "2026-03-28T10:00:00+07:00",
-			"vpn_expire_at":     "05/04/2026",
-		},
-		{
-			"username":          "inactive-late",
-			"last_vpn_login_at": "2026-02-20T10:00:00+07:00",
-			"vpn_expire_at":     "20/04/2026",
-		},
-	}
-
-	filtered := filterUserRowsByVPNState(rows, 30, 7, now)
-	if len(filtered) != 1 {
-		t.Fatalf("expected 1 filtered row, got %d", len(filtered))
-	}
-	if got := formatCell(filtered[0]["username"]); got != "inactive-expiring" {
-		t.Fatalf("unexpected filtered user: %q", got)
 	}
 }
 
@@ -227,5 +165,69 @@ func TestBuildUserImportPayloadAllowsEmptyPassword(t *testing.T) {
 	}
 	if got := formatCell(payload["password"]); got != "" {
 		t.Fatalf("expected empty password to be preserved for backend generation, got %q", got)
+	}
+}
+
+func TestApplyAccessListOwnerToPayloadForUser(t *testing.T) {
+	t.Parallel()
+
+	body := map[string]any{
+		"items": []any{
+			map[string]any{
+				"target": "10.0.0.0/8",
+			},
+		},
+	}
+
+	if err := applyAccessListOwnerToPayload(body, "user", "alice"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	items := body["items"].([]any)
+	item := items[0].(map[string]any)
+	if got := formatCell(item["username"]); got != "alice" {
+		t.Fatalf("expected username owner to be injected, got %q", got)
+	}
+	if _, exists := item["groupname"]; exists {
+		t.Fatalf("expected groupname to be removed for user owner")
+	}
+}
+
+func TestApplyAccessListOwnerToPayloadRejectsMismatchedOwner(t *testing.T) {
+	t.Parallel()
+
+	body := map[string]any{
+		"items": []any{
+			map[string]any{
+				"target":   "10.0.0.0/8",
+				"username": "bob",
+			},
+		},
+	}
+
+	err := applyAccessListOwnerToPayload(body, "user", "alice")
+	if err == nil {
+		t.Fatal("expected owner mismatch error, got nil")
+	}
+}
+
+func TestOpenVPNCommandScopesAccessListByOwner(t *testing.T) {
+	t.Parallel()
+
+	cmd := openvpnCmd(&rootOptions{})
+	userCmd, _, err := cmd.Find([]string{"user", "access-list", "list"})
+	if err != nil {
+		t.Fatalf("expected user access-list list command, got error: %v", err)
+	}
+	if userCmd == nil || userCmd.Name() != "list" {
+		t.Fatalf("unexpected user access-list command resolution: %#v", userCmd)
+	}
+
+	groupCmd, _, err := cmd.Find([]string{"group", "access-list", "append"})
+	if err != nil {
+		t.Fatalf("expected group access-list append command, got error: %v", err)
+	}
+	if groupCmd == nil || groupCmd.Name() != "append" {
+		t.Fatalf("unexpected group access-list command resolution: %#v", groupCmd)
 	}
 }

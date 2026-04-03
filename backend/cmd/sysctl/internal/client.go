@@ -77,7 +77,9 @@ func (e *APIError) friendlyMessage() string {
 	if friendly := e.friendlyUserCreateMessage(); friendly != "" {
 		return friendly
 	}
-	if e.Code != "precondition_failed" || !strings.Contains(e.Path, "/api/v1/openvpn/access-lists:") {
+	if e.Code != "precondition_failed" ||
+		!strings.Contains(e.Path, "/api/v1/openvpn/") ||
+		!strings.Contains(e.Path, "/access-lists:") {
 		return ""
 	}
 	if !strings.Contains(strings.ToLower(e.Message), "has no openvpn ruleset for domain routing") {

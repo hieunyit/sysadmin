@@ -39,9 +39,27 @@ type createUserDTO struct {
 }
 
 type updateUserDTO struct {
-	Email       *string `json:"email" validate:"omitempty,email"`
-	DisplayName *string `json:"display_name" validate:"omitempty,min=1,max=128"`
-	Enabled     *bool   `json:"enabled"`
+	Username *string `json:"username,omitempty" validate:"omitempty,min=3,max=64"`
+
+	Email *string `json:"email,omitempty" validate:"omitempty,email"`
+
+	FirstName    *string `json:"first_name,omitempty" validate:"omitempty,min=1,max=255"`
+	FirstNameAlt *string `json:"firstName,omitempty" validate:"omitempty,min=1,max=255"`
+	LastName     *string `json:"last_name,omitempty" validate:"omitempty,min=1,max=255"`
+	LastNameAlt  *string `json:"lastName,omitempty" validate:"omitempty,min=1,max=255"`
+
+	DisplayName    *string `json:"display_name,omitempty" validate:"omitempty,min=1,max=128"`
+	DisplayNameAlt *string `json:"displayName,omitempty" validate:"omitempty,min=1,max=128"`
+
+	Enabled *bool `json:"enabled,omitempty"`
+
+	EmailVerified    *bool `json:"email_verified,omitempty"`
+	EmailVerifiedAlt *bool `json:"emailVerified,omitempty"`
+
+	RequiredActions    *[]string `json:"required_actions,omitempty"`
+	RequiredActionsAlt *[]string `json:"requiredActions,omitempty"`
+
+	Attributes *map[string]string `json:"attributes,omitempty"`
 }
 
 type createGroupDTO struct {

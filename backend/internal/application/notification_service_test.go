@@ -48,9 +48,6 @@ func TestNotificationServiceTrySendAccountCreated(t *testing.T) {
 		DisplayName:    "Alice",
 		IdentitySource: "local",
 		Enabled:        true,
-		Attributes: map[string]string{
-			"userExpiryVPN": "20/04/2026",
-		},
 	}, "Mbfs@111", "")
 	if len(warnings) != 0 {
 		t.Fatalf("expected no warnings, got %#v", warnings)
@@ -165,9 +162,6 @@ func TestNotificationServiceTrySendVPNProvisioned(t *testing.T) {
 	warnings := svc.TrySendVPNProvisioned(context.Background(), services.KeycloakUser{
 		Username: "alice",
 		Email:    "alice@example.com",
-		Attributes: map[string]string{
-			"userExpiryVPN": "20/04/2026",
-		},
 	}, "partners-vpn")
 	if len(warnings) != 0 {
 		t.Fatalf("expected no warnings, got %#v", warnings)

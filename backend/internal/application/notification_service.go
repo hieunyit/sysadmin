@@ -317,11 +317,8 @@ func (s *NotificationService) effectiveSupportContact() string {
 	return "it-support@mobifonesolutions.vn"
 }
 
-func notificationVPNExpireAt(user services.KeycloakUser) string {
-	if user.Attributes == nil {
-		return ""
-	}
-	return strings.TrimSpace(user.Attributes["userExpiryVPN"])
+func notificationVPNExpireAt(_ services.KeycloakUser) string {
+	return ""
 }
 
 func notificationEmployeeID(user services.KeycloakUser) string {

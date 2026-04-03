@@ -16,4 +16,4 @@ run:
 	go run ./cmd/server
 
 cli:
-	go run ./cmd/vpnctl --help
+	go run ./cmd/sysctl --help
