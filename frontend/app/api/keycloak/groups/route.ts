@@ -43,12 +43,25 @@ export async function POST(request: NextRequest) {
           const group = mockGroups.find((g) => g.id === data.id)
           if (group) {
             const members = mockUsers.filter((u) => u.groups.includes(group.name))
-            return NextResponse.json({ members })
+            return NextResponse.json({ 
+              members: members.map(m => ({
+                id: m.id,
+                username: m.username,
+                email: m.email,
+                firstName: m.firstName,
+                lastName: m.lastName,
+              }))
+            })
           }
           return NextResponse.json({ members: [] })
         }
         case "getRoles":
-          return NextResponse.json({ roles: [{ id: "r1", name: "admin" }] })
+          return NextResponse.json({ 
+            roles: [
+              { id: "r1", name: "admin", description: "Full administrator access" },
+              { id: "r2", name: "user", description: "Basic user access" }
+            ] 
+          })
         default:
           return NextResponse.json({ error: "Invalid action" }, { status: 400 })
       }
@@ -58,8 +71,18 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case "create": {
-        const result = await createGroup({ name: data.name })
-        return NextResponse.json({ success: true, id: result.id })
+        const client = await getKeycloakAdminClient()
+        if (data.parentId) {
+          // Create as sub-group
+          const result = await client.groups.createChildGroup(
+            { id: data.parentId },
+            { name: data.name }
+          )
+          return NextResponse.json({ success: true, id: result.id })
+        } else {
+          const result = await createGroup({ name: data.name })
+          return NextResponse.json({ success: true, id: result.id })
+        }
       }
 
       case "update": {

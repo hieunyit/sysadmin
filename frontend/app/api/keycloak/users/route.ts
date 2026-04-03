@@ -73,9 +73,25 @@ export async function POST(request: NextRequest) {
         case "removeRole":
         case "addToGroup":
         case "removeFromGroup":
+        case "logout":
+        case "sendVerifyEmail":
           return NextResponse.json({ success: true })
         case "getRoles":
-          return NextResponse.json({ roles: ["user", "developer"] })
+          return NextResponse.json({ 
+            roles: [
+              { id: "r1", name: "user", description: "Basic user access" },
+              { id: "r2", name: "developer", description: "Developer access" }
+            ] 
+          })
+        case "getGroups":
+          const user = mockUsers.find(u => u.id === data.id)
+          return NextResponse.json({ 
+            groups: user?.groups?.map((g, i) => ({ 
+              id: `g${i}`, 
+              name: g, 
+              path: `/${g}` 
+            })) || []
+          })
         default:
           return NextResponse.json({ error: "Invalid action" }, { status: 400 })
       }
@@ -155,6 +171,24 @@ export async function POST(request: NextRequest) {
 
       case "removeFromGroup": {
         await removeUserFromGroup(data.userId, data.groupId)
+        return NextResponse.json({ success: true })
+      }
+
+      case "getGroups": {
+        const client = await import("@/lib/keycloak-admin").then(m => m.getKeycloakAdminClient())
+        const groups = await client.users.listGroups({ id: data.id })
+        return NextResponse.json({ groups })
+      }
+
+      case "logout": {
+        const { logoutUser } = await import("@/lib/keycloak-admin")
+        await logoutUser(data.id)
+        return NextResponse.json({ success: true })
+      }
+
+      case "sendVerifyEmail": {
+        const client = await import("@/lib/keycloak-admin").then(m => m.getKeycloakAdminClient())
+        await client.users.sendVerifyEmail({ id: data.id })
         return NextResponse.json({ success: true })
       }
 

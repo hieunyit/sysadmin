@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import useSWR, { mutate } from "swr"
+import useSWR from "swr"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -42,6 +42,8 @@ import {
 import { FieldGroup, Field, FieldLabel } from "@/components/ui/field"
 import { Switch } from "@/components/ui/switch"
 import { Spinner } from "@/components/ui/spinner"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Search,
   Plus,
@@ -59,6 +61,11 @@ import {
   Download,
   RefreshCw,
   Edit,
+  Shield,
+  Folder,
+  Key,
+  XCircle,
+  Settings,
 } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 
@@ -73,16 +80,37 @@ interface VPNUser {
   lastLogin?: string
   status: "active" | "inactive" | "suspended"
   assignedIP?: string
+  group?: string
+  // OpenVPN Access Server user properties
+  prop_autologin?: boolean
+  prop_admin?: boolean
+  prop_deny?: boolean
+  prop_autogenerate?: boolean
+  access_from?: string[]
+  access_to?: string[]
+}
+
+interface VPNGroup {
+  id: string
+  name: string
+  description?: string
+  userCount?: number
 }
 
 export default function OpenVPNUsersPage() {
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [groupFilter, setGroupFilter] = useState<string>("all")
   const [page, setPage] = useState(0)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
+  const [isPropsOpen, setIsPropsOpen] = useState(false)
+  const [isGroupOpen, setIsGroupOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<VPNUser | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [loadingUserData, setLoadingUserData] = useState(false)
+  const [userProps, setUserProps] = useState<Partial<VPNUser>>({})
+  const [availableGroups, setAvailableGroups] = useState<VPNGroup[]>([])
   const pageSize = 10
 
   const { data, error, isLoading: isLoadingUsers, mutate: refreshUsers } = useSWR(
@@ -91,7 +119,10 @@ export default function OpenVPNUsersPage() {
     { refreshInterval: 30000 }
   )
 
+  const { data: groupsData } = useSWR("/api/openvpn/groups", fetcher)
+
   const allUsers: VPNUser[] = data?.users || []
+  const groups: VPNGroup[] = groupsData?.groups || []
   
   const filteredUsers = useMemo(() => {
     let users = [...allUsers]
@@ -115,9 +146,14 @@ export default function OpenVPNUsersPage() {
         return u.status === statusFilter
       })
     }
+
+    // Apply group filter
+    if (groupFilter !== "all") {
+      users = users.filter((u) => u.group === groupFilter)
+    }
     
     return users
-  }, [allUsers, search, statusFilter])
+  }, [allUsers, search, statusFilter, groupFilter])
 
   const totalPages = Math.ceil(filteredUsers.length / pageSize)
   const paginatedUsers = filteredUsers.slice(page * pageSize, (page + 1) * pageSize)
@@ -135,7 +171,10 @@ export default function OpenVPNUsersPage() {
           action: "create",
           username: formData.get("username"),
           email: formData.get("email"),
+          group: formData.get("group") || undefined,
           enabled: formData.get("enabled") === "on",
+          prop_autologin: formData.get("autologin") === "on",
+          prop_admin: formData.get("admin") === "on",
         }),
       })
       
@@ -161,6 +200,7 @@ export default function OpenVPNUsersPage() {
         body: JSON.stringify({
           action: "update",
           id: selectedUser.id,
+          username: selectedUser.username,
           email: formData.get("email"),
           enabled: formData.get("enabled") === "on",
         }),
@@ -181,7 +221,7 @@ export default function OpenVPNUsersPage() {
     await fetch("/api/openvpn/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, id: user.id }),
+      body: JSON.stringify({ action, id: user.id, username: user.username }),
     })
     refreshUsers()
   }
@@ -192,13 +232,88 @@ export default function OpenVPNUsersPage() {
     await fetch("/api/openvpn/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "delete", id: user.id }),
+      body: JSON.stringify({ action: "delete", id: user.id, username: user.username }),
     })
     refreshUsers()
   }
 
+  const fetchUserProps = async (user: VPNUser) => {
+    setLoadingUserData(true)
+    try {
+      const res = await fetch("/api/openvpn/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "getProps", username: user.username }),
+      })
+      const data = await res.json()
+      setUserProps(data.props || {})
+    } finally {
+      setLoadingUserData(false)
+    }
+  }
+
+  const handleUpdateProps = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!selectedUser) return
+    setIsLoading(true)
+    const formData = new FormData(e.currentTarget)
+    
+    try {
+      await fetch("/api/openvpn/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "setProps",
+          username: selectedUser.username,
+          props: {
+            prop_autologin: formData.get("autologin") === "on",
+            prop_admin: formData.get("admin") === "on",
+            prop_deny: formData.get("deny") === "on",
+            prop_autogenerate: formData.get("autogenerate") === "on",
+          },
+        }),
+      })
+      setIsPropsOpen(false)
+      refreshUsers()
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleAssignGroup = async (groupName: string) => {
+    if (!selectedUser) return
+    setIsLoading(true)
+    try {
+      await fetch("/api/openvpn/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "setProps",
+          username: selectedUser.username,
+          props: { group: groupName || null },
+        }),
+      })
+      setIsGroupOpen(false)
+      refreshUsers()
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleGenerateMFA = async (user: VPNUser) => {
+    const res = await fetch("/api/openvpn/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "generateMFA", username: user.username }),
+    })
+    const data = await res.json()
+    if (data.totp_secret) {
+      alert(`TOTP Secret for ${user.username}: ${data.totp_secret}`)
+    }
+  }
+
   const getStatusColor = (user: VPNUser) => {
-    if (!user.enabled) return "bg-slate-100 text-slate-600"
+    if (!user.enabled) return "bg-muted text-muted-foreground"
     switch (user.status) {
       case "active":
         return "bg-emerald-100 text-emerald-700"
@@ -207,7 +322,7 @@ export default function OpenVPNUsersPage() {
       case "suspended":
         return "bg-red-100 text-red-700"
       default:
-        return "bg-slate-100 text-slate-600"
+        return "bg-muted text-muted-foreground"
     }
   }
 
@@ -222,11 +337,12 @@ export default function OpenVPNUsersPage() {
 
   const exportUsers = () => {
     const csv = [
-      ["Username", "Email", "Status", "Assigned IP", "Last Login", "Created"],
+      ["Username", "Email", "Status", "Group", "Assigned IP", "Last Login", "Created"],
       ...filteredUsers.map((u) => [
         u.username,
         u.email || "",
         getStatusLabel(u),
+        u.group || "",
         u.assignedIP || "",
         u.lastLogin ? new Date(u.lastLogin).toLocaleString() : "Never",
         new Date(u.createdAt).toLocaleDateString(),
@@ -249,7 +365,7 @@ export default function OpenVPNUsersPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-foreground">VPN Users</h1>
-            <p className="text-muted-foreground">Manage OpenVPN user accounts</p>
+            <p className="text-muted-foreground">Manage OpenVPN Access Server user accounts</p>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={exportUsers}>
@@ -280,9 +396,39 @@ export default function OpenVPNUsersPage() {
                       <FieldLabel>Email (optional)</FieldLabel>
                       <Input name="email" type="email" placeholder="user@example.com" />
                     </Field>
+                    <Field>
+                      <FieldLabel>Group (optional)</FieldLabel>
+                      <Select name="group">
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a group" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">No Group</SelectItem>
+                          {groups.map((group) => (
+                            <SelectItem key={group.id} value={group.name}>
+                              {group.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
                     <div className="flex items-center justify-between">
                       <FieldLabel>Enabled</FieldLabel>
                       <Switch name="enabled" defaultChecked />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <FieldLabel>Allow Auto-login</FieldLabel>
+                        <p className="text-xs text-muted-foreground">User can download auto-login profiles</p>
+                      </div>
+                      <Switch name="autologin" />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <FieldLabel>Admin Access</FieldLabel>
+                        <p className="text-xs text-muted-foreground">Grant admin privileges</p>
+                      </div>
+                      <Switch name="admin" />
                     </div>
                   </FieldGroup>
                   <DialogFooter>
@@ -350,12 +496,12 @@ export default function OpenVPNUsersPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Disabled</p>
-                  <p className="text-2xl font-bold text-slate-600">
+                  <p className="text-2xl font-bold text-muted-foreground">
                     {allUsers.filter((u) => !u.enabled).length}
                   </p>
                 </div>
-                <div className="p-3 bg-slate-100 rounded-lg">
-                  <PowerOff className="w-5 h-5 text-slate-600" />
+                <div className="p-3 bg-muted rounded-lg">
+                  <PowerOff className="w-5 h-5 text-muted-foreground" />
                 </div>
               </div>
             </CardContent>
@@ -380,16 +526,29 @@ export default function OpenVPNUsersPage() {
               <div className="flex items-center gap-2">
                 <Filter className="w-4 h-4 text-muted-foreground" />
                 <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(0) }}>
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="Filter status" />
+                  <SelectTrigger className="w-[130px]">
+                    <SelectValue placeholder="Status" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Users</SelectItem>
+                    <SelectItem value="all">All Status</SelectItem>
                     <SelectItem value="enabled">Enabled</SelectItem>
                     <SelectItem value="disabled">Disabled</SelectItem>
                     <SelectItem value="active">Active</SelectItem>
                     <SelectItem value="inactive">Inactive</SelectItem>
                     <SelectItem value="suspended">Suspended</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={groupFilter} onValueChange={(v) => { setGroupFilter(v); setPage(0) }}>
+                  <SelectTrigger className="w-[130px]">
+                    <SelectValue placeholder="Group" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Groups</SelectItem>
+                    {groups.map((group) => (
+                      <SelectItem key={group.id} value={group.name}>
+                        {group.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <Button variant="ghost" size="icon" onClick={() => refreshUsers()}>
@@ -424,6 +583,7 @@ export default function OpenVPNUsersPage() {
                       <TableRow>
                         <TableHead>User</TableHead>
                         <TableHead>Status</TableHead>
+                        <TableHead>Group</TableHead>
                         <TableHead>Assigned IP</TableHead>
                         <TableHead>Last Login</TableHead>
                         <TableHead>Created</TableHead>
@@ -441,7 +601,14 @@ export default function OpenVPNUsersPage() {
                                 </AvatarFallback>
                               </Avatar>
                               <div>
-                                <div className="font-medium text-foreground">{user.username}</div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-foreground">{user.username}</span>
+                                  {user.prop_admin && (
+                                    <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                                      Admin
+                                    </Badge>
+                                  )}
+                                </div>
                                 {user.email && (
                                   <div className="text-sm text-muted-foreground">{user.email}</div>
                                 )}
@@ -452,6 +619,16 @@ export default function OpenVPNUsersPage() {
                             <Badge className={getStatusColor(user)}>
                               {getStatusLabel(user)}
                             </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {user.group ? (
+                              <Badge variant="outline" className="gap-1">
+                                <Folder className="w-3 h-3" />
+                                {user.group}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground/50">-</span>
+                            )}
                           </TableCell>
                           <TableCell>
                             {user.assignedIP ? (
@@ -493,9 +670,33 @@ export default function OpenVPNUsersPage() {
                                   <Edit className="w-4 h-4 mr-2" />
                                   Edit User
                                 </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setSelectedUser(user)
+                                    fetchUserProps(user)
+                                    setIsPropsOpen(true)
+                                  }}
+                                >
+                                  <Settings className="w-4 h-4 mr-2" />
+                                  User Properties
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setSelectedUser(user)
+                                    setAvailableGroups(groups)
+                                    setIsGroupOpen(true)
+                                  }}
+                                >
+                                  <Folder className="w-4 h-4 mr-2" />
+                                  Assign Group
+                                </DropdownMenuItem>
                                 <DropdownMenuItem>
                                   <FileKey className="w-4 h-4 mr-2" />
                                   Generate Config
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleGenerateMFA(user)}>
+                                  <Key className="w-4 h-4 mr-2" />
+                                  Generate MFA Secret
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem onClick={() => handleToggleEnabled(user)}>
@@ -597,6 +798,118 @@ export default function OpenVPNUsersPage() {
                 </Button>
               </DialogFooter>
             </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* User Properties Dialog */}
+        <Dialog open={isPropsOpen} onOpenChange={setIsPropsOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>User Properties</DialogTitle>
+              <DialogDescription>
+                Configure VPN properties for {selectedUser?.username}
+              </DialogDescription>
+            </DialogHeader>
+            {loadingUserData ? (
+              <div className="flex items-center justify-center py-8">
+                <Spinner className="w-6 h-6 text-teal-600" />
+              </div>
+            ) : (
+              <form onSubmit={handleUpdateProps}>
+                <FieldGroup className="space-y-4 py-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <FieldLabel>Auto-login</FieldLabel>
+                      <p className="text-xs text-muted-foreground">Allow auto-login profile generation</p>
+                    </div>
+                    <Switch name="autologin" defaultChecked={userProps.prop_autologin} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <FieldLabel>Admin Access</FieldLabel>
+                      <p className="text-xs text-muted-foreground">Grant admin web UI access</p>
+                    </div>
+                    <Switch name="admin" defaultChecked={userProps.prop_admin} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <FieldLabel>Deny Access</FieldLabel>
+                      <p className="text-xs text-muted-foreground">Block VPN connections</p>
+                    </div>
+                    <Switch name="deny" defaultChecked={userProps.prop_deny} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <FieldLabel>Auto-generate</FieldLabel>
+                      <p className="text-xs text-muted-foreground">Auto-generate certificates</p>
+                    </div>
+                    <Switch name="autogenerate" defaultChecked={userProps.prop_autogenerate} />
+                  </div>
+                </FieldGroup>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setIsPropsOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={isLoading} className="bg-teal-600 hover:bg-teal-700">
+                    {isLoading ? <Spinner className="w-4 h-4 mr-2" /> : null}
+                    Save Properties
+                  </Button>
+                </DialogFooter>
+              </form>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Assign Group Dialog */}
+        <Dialog open={isGroupOpen} onOpenChange={setIsGroupOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Assign Group</DialogTitle>
+              <DialogDescription>
+                Assign {selectedUser?.username} to a group
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4 space-y-4">
+              <div className="space-y-2">
+                <div
+                  className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer hover:bg-muted ${
+                    !selectedUser?.group ? "border-teal-500 bg-teal-50" : ""
+                  }`}
+                  onClick={() => handleAssignGroup("")}
+                >
+                  <div className="flex items-center gap-2">
+                    <XCircle className="w-4 h-4 text-muted-foreground" />
+                    <span>No Group</span>
+                  </div>
+                  {!selectedUser?.group && <Badge className="bg-teal-600">Current</Badge>}
+                </div>
+                {availableGroups.map((group) => (
+                  <div
+                    key={group.id}
+                    className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer hover:bg-muted ${
+                      selectedUser?.group === group.name ? "border-teal-500 bg-teal-50" : ""
+                    }`}
+                    onClick={() => handleAssignGroup(group.name)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Folder className="w-4 h-4 text-amber-500" />
+                      <div>
+                        <span className="font-medium">{group.name}</span>
+                        {group.description && (
+                          <p className="text-xs text-muted-foreground">{group.description}</p>
+                        )}
+                      </div>
+                    </div>
+                    {selectedUser?.group === group.name && <Badge className="bg-teal-600">Current</Badge>}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsGroupOpen(false)}>
+                Close
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>

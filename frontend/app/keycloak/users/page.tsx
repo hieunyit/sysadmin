@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import useSWR, { mutate } from "swr"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Button } from "@/components/ui/button"
@@ -42,6 +42,9 @@ import {
 import { FieldGroup, Field, FieldLabel } from "@/components/ui/field"
 import { Switch } from "@/components/ui/switch"
 import { Spinner } from "@/components/ui/spinner"
+import { Checkbox } from "@/components/ui/checkbox"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Search,
   Plus,
@@ -60,6 +63,9 @@ import {
   Download,
   RefreshCw,
   Edit,
+  Folder,
+  LogOut,
+  Send,
 } from "lucide-react"
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json())
@@ -77,6 +83,19 @@ interface User {
   roles?: string[]
 }
 
+interface Group {
+  id: string
+  name: string
+  path: string
+}
+
+interface Role {
+  id: string
+  name: string
+  description?: string
+  composite?: boolean
+}
+
 export default function KeycloakUsersPage() {
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(0)
@@ -85,8 +104,14 @@ export default function KeycloakUsersPage() {
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [isPasswordOpen, setIsPasswordOpen] = useState(false)
   const [isRolesOpen, setIsRolesOpen] = useState(false)
+  const [isGroupsOpen, setIsGroupsOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [userRoles, setUserRoles] = useState<Role[]>([])
+  const [userGroups, setUserGroups] = useState<Group[]>([])
+  const [availableRoles, setAvailableRoles] = useState<Role[]>([])
+  const [availableGroups, setAvailableGroups] = useState<Group[]>([])
+  const [loadingUserData, setLoadingUserData] = useState(false)
   const pageSize = 10
 
   const { data, error, isLoading: isLoadingUsers, mutate: refreshUsers } = useSWR(
@@ -219,6 +244,137 @@ export default function KeycloakUsersPage() {
       body: JSON.stringify({ action: "delete", id: user.id }),
     })
     refreshUsers()
+  }
+
+  // Fetch user roles and groups
+  const fetchUserRolesAndGroups = async (user: User) => {
+    setLoadingUserData(true)
+    try {
+      const [rolesRes, groupsRes, allRolesRes, allGroupsRes] = await Promise.all([
+        fetch("/api/keycloak/users", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "getRoles", id: user.id }),
+        }),
+        fetch("/api/keycloak/users", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "getGroups", id: user.id }),
+        }),
+        fetch("/api/keycloak/roles"),
+        fetch("/api/keycloak/groups"),
+      ])
+      
+      const [rolesData, groupsData, allRolesData, allGroupsData] = await Promise.all([
+        rolesRes.json(),
+        groupsRes.json(),
+        allRolesRes.json(),
+        allGroupsRes.json(),
+      ])
+      
+      setUserRoles(rolesData.roles || [])
+      setUserGroups(groupsData.groups || [])
+      setAvailableRoles(allRolesData.roles || [])
+      setAvailableGroups(allGroupsData.groups || [])
+    } catch (error) {
+      console.error("Error fetching user data:", error)
+    } finally {
+      setLoadingUserData(false)
+    }
+  }
+
+  const handleAssignRole = async (role: Role) => {
+    if (!selectedUser) return
+    setIsLoading(true)
+    try {
+      await fetch("/api/keycloak/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "assignRole",
+          userId: selectedUser.id,
+          roles: [{ id: role.id, name: role.name }],
+        }),
+      })
+      setUserRoles([...userRoles, role])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleRemoveRole = async (role: Role) => {
+    if (!selectedUser) return
+    setIsLoading(true)
+    try {
+      await fetch("/api/keycloak/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "removeRole",
+          userId: selectedUser.id,
+          roles: [{ id: role.id, name: role.name }],
+        }),
+      })
+      setUserRoles(userRoles.filter((r) => r.id !== role.id))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleAddToGroup = async (group: Group) => {
+    if (!selectedUser) return
+    setIsLoading(true)
+    try {
+      await fetch("/api/keycloak/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "addToGroup",
+          userId: selectedUser.id,
+          groupId: group.id,
+        }),
+      })
+      setUserGroups([...userGroups, group])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleRemoveFromGroup = async (group: Group) => {
+    if (!selectedUser) return
+    setIsLoading(true)
+    try {
+      await fetch("/api/keycloak/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "removeFromGroup",
+          userId: selectedUser.id,
+          groupId: group.id,
+        }),
+      })
+      setUserGroups(userGroups.filter((g) => g.id !== group.id))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleLogoutUser = async (user: User) => {
+    if (!confirm(`Are you sure you want to logout user "${user.username}" from all sessions?`)) return
+    
+    await fetch("/api/keycloak/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "logout", id: user.id }),
+    })
+  }
+
+  const handleSendVerificationEmail = async (user: User) => {
+    await fetch("/api/keycloak/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "sendVerifyEmail", id: user.id }),
+    })
   }
 
   const getInitials = (user: User) => {
@@ -496,15 +652,33 @@ export default function KeycloakUsersPage() {
                                 <DropdownMenuItem
                                   onClick={() => {
                                     setSelectedUser(user)
+                                    fetchUserRolesAndGroups(user)
                                     setIsRolesOpen(true)
                                   }}
                                 >
                                   <Shield className="w-4 h-4 mr-2" />
                                   Manage Roles
                                 </DropdownMenuItem>
-                                <DropdownMenuItem>
-                                  <UsersIcon className="w-4 h-4 mr-2" />
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setSelectedUser(user)
+                                    fetchUserRolesAndGroups(user)
+                                    setIsGroupsOpen(true)
+                                  }}
+                                >
+                                  <Folder className="w-4 h-4 mr-2" />
                                   Manage Groups
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                {!user.emailVerified && (
+                                  <DropdownMenuItem onClick={() => handleSendVerificationEmail(user)}>
+                                    <Send className="w-4 h-4 mr-2" />
+                                    Send Verification Email
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem onClick={() => handleLogoutUser(user)}>
+                                  <LogOut className="w-4 h-4 mr-2" />
+                                  Logout All Sessions
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem onClick={() => handleToggleEnabled(user)}>
@@ -682,53 +856,164 @@ export default function KeycloakUsersPage() {
             <DialogHeader>
               <DialogTitle>Manage Roles</DialogTitle>
               <DialogDescription>
-                Assign or remove roles for {selectedUser?.username}
+                Assign or remove realm roles for {selectedUser?.username}
               </DialogDescription>
             </DialogHeader>
             <div className="py-4">
-              <div className="space-y-4">
-                <div>
-                  <h4 className="text-sm font-medium mb-2">Current Roles</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedUser?.roles?.map((role) => (
-                      <Badge key={role} variant="secondary" className="gap-1">
-                        {role}
-                        <button
-                          className="ml-1 hover:text-red-500"
-                          onClick={() => {
-                            // Remove role logic
-                          }}
-                        >
-                          <XCircle className="w-3 h-3" />
-                        </button>
-                      </Badge>
-                    )) || <span className="text-sm text-muted-foreground">No roles assigned</span>}
+              {loadingUserData ? (
+                <div className="flex items-center justify-center py-8">
+                  <Spinner className="w-6 h-6 text-emerald-600" />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-sm font-medium mb-2">Assigned Roles</h4>
+                    {userRoles.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {userRoles.map((role) => (
+                          <Badge key={role.id} variant="secondary" className="gap-1">
+                            {role.name}
+                            <button
+                              className="ml-1 hover:text-red-500"
+                              onClick={() => handleRemoveRole(role)}
+                              disabled={isLoading}
+                            >
+                              <XCircle className="w-3 h-3" />
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No roles assigned</p>
+                    )}
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium mb-2">Available Roles</h4>
+                    <ScrollArea className="h-48 border rounded-lg p-2">
+                      <div className="space-y-2">
+                        {availableRoles
+                          .filter((role) => !userRoles.find((r) => r.id === role.id))
+                          .map((role) => (
+                            <div
+                              key={role.id}
+                              className="flex items-center justify-between p-2 hover:bg-muted rounded-md"
+                            >
+                              <div>
+                                <p className="text-sm font-medium">{role.name}</p>
+                                {role.description && (
+                                  <p className="text-xs text-muted-foreground">{role.description}</p>
+                                )}
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleAssignRole(role)}
+                                disabled={isLoading}
+                              >
+                                <Plus className="w-3 h-3 mr-1" />
+                                Add
+                              </Button>
+                            </div>
+                          ))}
+                        {availableRoles.filter((role) => !userRoles.find((r) => r.id === role.id)).length === 0 && (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            All available roles have been assigned
+                          </p>
+                        )}
+                      </div>
+                    </ScrollArea>
                   </div>
                 </div>
-                <div>
-                  <h4 className="text-sm font-medium mb-2">Available Roles</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {["admin", "developer", "user", "support", "tester", "viewer"]
-                      .filter((r) => !selectedUser?.roles?.includes(r))
-                      .map((role) => (
-                        <Badge
-                          key={role}
-                          variant="outline"
-                          className="gap-1 cursor-pointer hover:bg-emerald-50 hover:border-emerald-300"
-                          onClick={() => {
-                            // Add role logic
-                          }}
-                        >
-                          <Plus className="w-3 h-3" />
-                          {role}
-                        </Badge>
-                      ))}
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsRolesOpen(false)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Manage Groups Dialog */}
+        <Dialog open={isGroupsOpen} onOpenChange={setIsGroupsOpen}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Manage Groups</DialogTitle>
+              <DialogDescription>
+                Add or remove {selectedUser?.username} from groups
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              {loadingUserData ? (
+                <div className="flex items-center justify-center py-8">
+                  <Spinner className="w-6 h-6 text-emerald-600" />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-sm font-medium mb-2">Member Of</h4>
+                    {userGroups.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {userGroups.map((group) => (
+                          <Badge key={group.id} variant="secondary" className="gap-1">
+                            <Folder className="w-3 h-3 mr-1" />
+                            {group.name}
+                            <button
+                              className="ml-1 hover:text-red-500"
+                              onClick={() => handleRemoveFromGroup(group)}
+                              disabled={isLoading}
+                            >
+                              <XCircle className="w-3 h-3" />
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Not a member of any groups</p>
+                    )}
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium mb-2">Available Groups</h4>
+                    <ScrollArea className="h-48 border rounded-lg p-2">
+                      <div className="space-y-2">
+                        {availableGroups
+                          .filter((group) => !userGroups.find((g) => g.id === group.id))
+                          .map((group) => (
+                            <div
+                              key={group.id}
+                              className="flex items-center justify-between p-2 hover:bg-muted rounded-md"
+                            >
+                              <div className="flex items-center gap-2">
+                                <Folder className="w-4 h-4 text-muted-foreground" />
+                                <div>
+                                  <p className="text-sm font-medium">{group.name}</p>
+                                  <p className="text-xs text-muted-foreground">{group.path}</p>
+                                </div>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleAddToGroup(group)}
+                                disabled={isLoading}
+                              >
+                                <Plus className="w-3 h-3 mr-1" />
+                                Add
+                              </Button>
+                            </div>
+                          ))}
+                        {availableGroups.filter((group) => !userGroups.find((g) => g.id === group.id)).length === 0 && (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            User is already a member of all groups
+                          </p>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsGroupsOpen(false)}>
                 Close
               </Button>
             </DialogFooter>

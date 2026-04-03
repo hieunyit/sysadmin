@@ -73,6 +73,7 @@ const navigation: (NavItem | NavGroup)[] = [
     color: "text-teal-600",
     items: [
       { name: "VPN Users", href: "/openvpn/users", icon: Users },
+      { name: "VPN Groups", href: "/openvpn/groups", icon: Folder },
       { name: "Connections", href: "/openvpn/connections", icon: Wifi },
       { name: "Configs", href: "/openvpn/configs", icon: FileKey },
     ],
