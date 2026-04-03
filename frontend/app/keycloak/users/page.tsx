@@ -44,7 +44,6 @@ import { Switch } from "@/components/ui/switch"
 import { Spinner } from "@/components/ui/spinner"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Search,
   Plus,
@@ -52,7 +51,6 @@ import {
   UserCog,
   Key,
   Trash2,
-  Shield,
   Users as UsersIcon,
   Mail,
   CheckCircle,
@@ -89,13 +87,6 @@ interface Group {
   path: string
 }
 
-interface Role {
-  id: string
-  name: string
-  description?: string
-  composite?: boolean
-}
-
 export default function KeycloakUsersPage() {
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(0)
@@ -103,13 +94,10 @@ export default function KeycloakUsersPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [isPasswordOpen, setIsPasswordOpen] = useState(false)
-  const [isRolesOpen, setIsRolesOpen] = useState(false)
   const [isGroupsOpen, setIsGroupsOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [userRoles, setUserRoles] = useState<Role[]>([])
   const [userGroups, setUserGroups] = useState<Group[]>([])
-  const [availableRoles, setAvailableRoles] = useState<Role[]>([])
   const [availableGroups, setAvailableGroups] = useState<Group[]>([])
   const [loadingUserData, setLoadingUserData] = useState(false)
   const pageSize = 10
@@ -246,78 +234,30 @@ export default function KeycloakUsersPage() {
     refreshUsers()
   }
 
-  // Fetch user roles and groups
-  const fetchUserRolesAndGroups = async (user: User) => {
+  // Fetch user groups
+  const fetchUserGroups = async (user: User) => {
     setLoadingUserData(true)
     try {
-      const [rolesRes, groupsRes, allRolesRes, allGroupsRes] = await Promise.all([
-        fetch("/api/keycloak/users", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "getRoles", id: user.id }),
-        }),
+      const [groupsRes, allGroupsRes] = await Promise.all([
         fetch("/api/keycloak/users", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "getGroups", id: user.id }),
         }),
-        fetch("/api/keycloak/roles"),
         fetch("/api/keycloak/groups"),
       ])
       
-      const [rolesData, groupsData, allRolesData, allGroupsData] = await Promise.all([
-        rolesRes.json(),
+      const [groupsData, allGroupsData] = await Promise.all([
         groupsRes.json(),
-        allRolesRes.json(),
         allGroupsRes.json(),
       ])
       
-      setUserRoles(rolesData.roles || [])
       setUserGroups(groupsData.groups || [])
-      setAvailableRoles(allRolesData.roles || [])
       setAvailableGroups(allGroupsData.groups || [])
     } catch (error) {
-      console.error("Error fetching user data:", error)
+      console.error("Error fetching user groups:", error)
     } finally {
       setLoadingUserData(false)
-    }
-  }
-
-  const handleAssignRole = async (role: Role) => {
-    if (!selectedUser) return
-    setIsLoading(true)
-    try {
-      await fetch("/api/keycloak/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "assignRole",
-          userId: selectedUser.id,
-          roles: [{ id: role.id, name: role.name }],
-        }),
-      })
-      setUserRoles([...userRoles, role])
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleRemoveRole = async (role: Role) => {
-    if (!selectedUser) return
-    setIsLoading(true)
-    try {
-      await fetch("/api/keycloak/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "removeRole",
-          userId: selectedUser.id,
-          roles: [{ id: role.id, name: role.name }],
-        }),
-      })
-      setUserRoles(userRoles.filter((r) => r.id !== role.id))
-    } finally {
-      setIsLoading(false)
     }
   }
 
@@ -652,17 +592,7 @@ export default function KeycloakUsersPage() {
                                 <DropdownMenuItem
                                   onClick={() => {
                                     setSelectedUser(user)
-                                    fetchUserRolesAndGroups(user)
-                                    setIsRolesOpen(true)
-                                  }}
-                                >
-                                  <Shield className="w-4 h-4 mr-2" />
-                                  Manage Roles
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setSelectedUser(user)
-                                    fetchUserRolesAndGroups(user)
+                                    fetchUserGroups(user)
                                     setIsGroupsOpen(true)
                                   }}
                                 >
@@ -847,90 +777,6 @@ export default function KeycloakUsersPage() {
                 </Button>
               </DialogFooter>
             </form>
-          </DialogContent>
-        </Dialog>
-
-        {/* Manage Roles Dialog */}
-        <Dialog open={isRolesOpen} onOpenChange={setIsRolesOpen}>
-          <DialogContent className="sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Manage Roles</DialogTitle>
-              <DialogDescription>
-                Assign or remove realm roles for {selectedUser?.username}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="py-4">
-              {loadingUserData ? (
-                <div className="flex items-center justify-center py-8">
-                  <Spinner className="w-6 h-6 text-emerald-600" />
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="text-sm font-medium mb-2">Assigned Roles</h4>
-                    {userRoles.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {userRoles.map((role) => (
-                          <Badge key={role.id} variant="secondary" className="gap-1">
-                            {role.name}
-                            <button
-                              className="ml-1 hover:text-red-500"
-                              onClick={() => handleRemoveRole(role)}
-                              disabled={isLoading}
-                            >
-                              <XCircle className="w-3 h-3" />
-                            </button>
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No roles assigned</p>
-                    )}
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium mb-2">Available Roles</h4>
-                    <ScrollArea className="h-48 border rounded-lg p-2">
-                      <div className="space-y-2">
-                        {availableRoles
-                          .filter((role) => !userRoles.find((r) => r.id === role.id))
-                          .map((role) => (
-                            <div
-                              key={role.id}
-                              className="flex items-center justify-between p-2 hover:bg-muted rounded-md"
-                            >
-                              <div>
-                                <p className="text-sm font-medium">{role.name}</p>
-                                {role.description && (
-                                  <p className="text-xs text-muted-foreground">{role.description}</p>
-                                )}
-                              </div>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleAssignRole(role)}
-                                disabled={isLoading}
-                              >
-                                <Plus className="w-3 h-3 mr-1" />
-                                Add
-                              </Button>
-                            </div>
-                          ))}
-                        {availableRoles.filter((role) => !userRoles.find((r) => r.id === role.id)).length === 0 && (
-                          <p className="text-sm text-muted-foreground text-center py-4">
-                            All available roles have been assigned
-                          </p>
-                        )}
-                      </div>
-                    </ScrollArea>
-                  </div>
-                </div>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsRolesOpen(false)}>
-                Close
-              </Button>
-            </DialogFooter>
           </DialogContent>
         </Dialog>
 

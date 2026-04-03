@@ -17,11 +17,12 @@ import {
   Folder,
   Activity,
   Wifi,
-  FileKey,
   ChevronDown,
   ChevronRight,
   LogOut,
   User,
+  ClipboardList,
+  Mail,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -75,10 +76,11 @@ const navigation: (NavItem | NavGroup)[] = [
       { name: "VPN Users", href: "/openvpn/users", icon: Users },
       { name: "VPN Groups", href: "/openvpn/groups", icon: Folder },
       { name: "Connections", href: "/openvpn/connections", icon: Wifi },
-      { name: "Configs", href: "/openvpn/configs", icon: FileKey },
     ],
   },
   { name: "Settings", href: "/settings", icon: Settings },
+  { name: "Audit Logs", href: "/audit-logs", icon: ClipboardList },
+  { name: "Email Templates", href: "/email-templates", icon: Mail },
 ]
 
 function isNavGroup(item: NavItem | NavGroup): item is NavGroup {
