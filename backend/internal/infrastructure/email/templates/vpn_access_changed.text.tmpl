@@ -1,0 +1,13 @@
+{{.BrandName}}
+
+Xin chào {{.RecipientName}},
+
+Quyền truy cập VPN đã được {{.ActionLabel}} cho {{.SubjectLabel}}.
+
+Danh sách thay đổi:
+{{range .Entries}}- {{.Summary}}
+{{end}}
+{{if .GroupContext}}
+Áp dụng thông qua nhóm: {{.GroupContext}}
+{{end}}
+Đây là email tự động từ {{.BrandName}}. Nếu cần hỗ trợ, vui lòng liên hệ {{.SupportContact}}.

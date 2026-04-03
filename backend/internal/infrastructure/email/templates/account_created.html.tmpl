@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{if .RecipientIsAccount}}Thông tin tài khoản đăng nhập{{else}}Thông báo tạo tài khoản đăng nhập{{end}}</title>
+</head>
+<body style="margin:0; padding:0; background-color:#eef4ff; font-family:Arial, Helvetica, sans-serif; color:#0f172a;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(180deg,#eef4ff 0%,#e6f0ff 100%); padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:640px; background-color:#ffffff; border-radius:22px; overflow:hidden; box-shadow:0 14px 40px rgba(15,23,42,0.10);">
+          <tr>
+            <td style="height:6px; background:linear-gradient(90deg,#00c2ff 0%,#2563eb 50%,#1d4ed8 100%);"></td>
+          </tr>
+          <tr>
+            <td style="padding:42px 40px 24px; background:radial-gradient(circle at top right,#dbeafe 0%,#eff6ff 35%,#ffffff 75%); text-align:center;">
+              <div style="display:inline-block; padding:14px 16px; border-radius:18px; background:linear-gradient(135deg,#e0f2fe,#dbeafe); border:1px solid #bfdbfe; margin-bottom:18px;">
+                <span style="font-size:28px; line-height:28px;">&#10003;</span>
+              </div>
+              <p style="margin:0 0 10px; font-size:12px; font-weight:700; letter-spacing:1.8px; text-transform:uppercase; color:#0284c7;">
+                {{if .RecipientIsAccount}}Thông tin tài khoản{{else}}Thông báo hệ thống{{end}}
+              </p>
+              <h1 style="margin:0 0 14px; font-size:30px; line-height:1.3; color:#0f172a; font-weight:700;">
+                {{if .RecipientIsAccount}}Thông tin tài khoản đăng nhập{{else}}Thông báo tạo tài khoản đăng nhập{{end}}
+              </h1>
+              <p style="margin:0 auto; max-width:500px; font-size:16px; line-height:1.8; color:#475569;">
+                {{if .RecipientIsAccount}}
+                Xin chào <strong>{{.RecipientName}}</strong>, {{.BrandName}} đã tạo tài khoản đăng nhập cho bạn.
+                Vui lòng sử dụng thông tin bên dưới để truy cập hệ thống.
+                {{else}}
+                Xin chào <strong>{{.RecipientName}}</strong>, {{.BrandName}} đã tạo tài khoản đăng nhập cho người dùng dưới đây.
+                Email này được gửi đến địa chỉ nhận thông báo đã được cấu hình.
+                {{end}}
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 40px 10px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(180deg,#f8fbff 0%,#f1f7ff 100%); border:1px solid #dbeafe; border-radius:18px;">
+                <tr>
+                  <td style="padding:24px;">
+                    <p style="margin:0 0 18px; font-size:14px; font-weight:700; color:#0f172a;">
+                      Thông tin đăng nhập
+                    </p>
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="padding:0 0 12px; font-size:14px; color:#64748b; width:150px;">Tên đăng nhập</td>
+                        <td style="padding:0 0 12px; font-size:14px; color:#0f172a; font-weight:600;">{{.Username}}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:0 0 12px; font-size:14px; color:#64748b;">Email tài khoản</td>
+                        <td style="padding:0 0 12px; font-size:14px; color:#0f172a; font-weight:600;">{{.Email}}</td>
+                      </tr>
+                      {{if not .RecipientIsAccount}}
+                      <tr>
+                        <td style="padding:0 0 12px; font-size:14px; color:#64748b;">Email nhận thông báo</td>
+                        <td style="padding:0 0 12px; font-size:14px; color:#0f172a; font-weight:600;">{{.NotificationRecipient}}</td>
+                      </tr>
+                      {{end}}
+                      <tr>
+                        <td style="padding:0; font-size:14px; color:#64748b;">Mật khẩu tạm thời</td>
+                        <td style="padding:0;">
+                          <span style="display:inline-block; padding:8px 12px; font-size:14px; color:#0f172a; font-weight:700; background:#ffffff; border:1px solid #cbd5e1; border-radius:10px;">{{.TemporaryPassword}}</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          {{if .LoginURL}}
+          <tr>
+            <td style="padding:28px 40px 16px; text-align:center;">
+              <a href="{{.LoginURL}}" target="_blank" style="display:inline-block; padding:15px 34px; font-size:15px; font-weight:700; color:#ffffff; text-decoration:none; border-radius:14px; background:linear-gradient(135deg,#06b6d4 0%,#2563eb 55%,#1d4ed8 100%); box-shadow:0 10px 24px rgba(37,99,235,0.28);">
+                Đăng nhập và đổi mật khẩu
+              </a>
+            </td>
+          </tr>
+          {{end}}
+          <tr>
+            <td style="padding:0 40px 30px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fbff; border:1px solid #dbeafe; border-radius:14px;">
+                <tr>
+                  <td style="padding:16px 18px;">
+                    <p style="margin:0; font-size:14px; line-height:1.8; color:#475569;">
+                      Để bảo đảm an toàn thông tin, vui lòng thay đổi mật khẩu ngay sau lần đăng nhập đầu tiên.
+                      Nếu bạn không nhận biết yêu cầu này, vui lòng liên hệ {{.SupportContact}} để được hỗ trợ kịp thời.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 40px; background:#f8fbff; border-top:1px solid #e2e8f0; text-align:center;">
+              <p style="margin:0 0 6px; font-size:13px; color:#64748b;">
+                Trân trọng,
+              </p>
+              <p style="margin:0; font-size:13px; font-weight:700; color:#0f172a;">
+                {{.BrandName}}
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

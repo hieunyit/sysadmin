@@ -1,0 +1,25 @@
+{{.BrandName}}
+
+Xin chào {{.RecipientName}},
+
+{{if .RecipientIsAccount}}
+{{.BrandName}} đã tạo tài khoản đăng nhập cho bạn. Vui lòng sử dụng thông tin dưới đây để truy cập hệ thống.
+{{else}}
+{{.BrandName}} đã tạo tài khoản đăng nhập cho người dùng dưới đây. Email này được gửi đến địa chỉ nhận thông báo đã được cấu hình.
+{{end}}
+
+Tên đăng nhập: {{.Username}}
+Email tài khoản: {{.Email}}
+{{if not .RecipientIsAccount}}Email nhận thông báo: {{.NotificationRecipient}}
+{{end}}
+Mật khẩu tạm thời: {{.TemporaryPassword}}
+{{if .LoginURL}}
+Trang đăng nhập và đổi mật khẩu lần đầu: {{.LoginURL}}
+{{end}}
+
+Để bảo đảm an toàn thông tin, vui lòng thay đổi mật khẩu ngay sau lần đăng nhập đầu tiên.
+
+Nếu bạn không nhận biết yêu cầu này hoặc cần hỗ trợ, vui lòng liên hệ {{.SupportContact}}.
+
+Trân trọng,
+{{.BrandName}}

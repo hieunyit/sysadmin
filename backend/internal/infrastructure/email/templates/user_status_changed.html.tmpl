@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="vi">
+<body style="margin:0;padding:0;background:#f4f7fb;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f7fb;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" style="width:640px;max-width:640px;background:#ffffff;border:1px solid #d9e2ec;border-radius:16px;overflow:hidden;">
+          <tr>
+            <td style="background:#134e4a;padding:24px 32px;font-family:Segoe UI,Arial,sans-serif;color:#ffffff;">
+              <div style="font-size:12px;letter-spacing:1.2px;text-transform:uppercase;opacity:0.85;">{{.BrandName}}</div>
+              <div style="margin-top:8px;font-size:24px;font-weight:700;line-height:1.3;">Cập nhật trạng thái tài khoản</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px 32px;font-family:Segoe UI,Arial,sans-serif;color:#1f2937;line-height:1.7;">
+              <p style="margin:0 0 12px 0;">Xin chào {{.RecipientName}},</p>
+              <p style="margin:0 0 20px 0;">Trạng thái tài khoản của bạn vừa được cập nhật.</p>
+
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border:1px solid #d9e2ec;border-radius:12px;background:#f8fafc;">
+                <tr>
+                  <td style="padding:20px 22px;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="font-family:Segoe UI,Arial,sans-serif;color:#1f2937;">
+                      <tr>
+                        <td style="padding:0 0 10px 0;font-size:13px;color:#52606d;width:180px;">Tên đăng nhập</td>
+                        <td style="padding:0 0 10px 0;font-size:15px;font-weight:600;">{{.Username}}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:0 0 10px 0;font-size:13px;color:#52606d;">Email</td>
+                        <td style="padding:0 0 10px 0;font-size:15px;font-weight:600;">{{.Email}}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:0;font-size:13px;color:#52606d;">Trạng thái mới</td>
+                        <td style="padding:0;font-size:15px;font-weight:700;color:#134e4a;">{{.StatusLabel}}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:20px 0 0 0;font-size:14px;color:#52606d;">Đây là email tự động từ {{.BrandName}}. Nếu cần hỗ trợ, vui lòng liên hệ {{.SupportContact}}.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

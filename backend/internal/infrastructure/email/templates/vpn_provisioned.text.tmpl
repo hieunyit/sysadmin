@@ -1,0 +1,25 @@
+{{.BrandName}}
+
+Xin chào {{.RecipientName}},
+
+{{if .RecipientIsAccount}}
+{{.BrandName}} đã cấp quyền truy cập VPN cho tài khoản của bạn.
+{{else}}
+{{.BrandName}} đã cấp quyền truy cập VPN cho người dùng dưới đây. Email này được gửi đến địa chỉ nhận thông báo đã được cấu hình.
+{{end}}
+
+Tên đăng nhập: {{.Username}}
+Email tài khoản: {{.Email}}
+{{if not .RecipientIsAccount}}Email nhận thông báo: {{.NotificationRecipient}}
+{{end}}{{if .VPNGroup}}Nhóm VPN: {{.VPNGroup}}
+{{end}}{{if .VPNExpireAt}}Hiệu lực đến: {{.VPNExpireAt}}
+{{end}}Hình thức đăng nhập: Sử dụng tài khoản SSO MBFS
+{{if .LoginURL}}
+
+Trang đăng nhập: {{.LoginURL}}
+{{end}}
+
+Nếu bạn không nhận biết thay đổi này, vui lòng liên hệ {{.SupportContact}} để được hỗ trợ.
+
+Trân trọng,
+{{.BrandName}}

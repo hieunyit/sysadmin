@@ -1,0 +1,3 @@
+username,email,notification_email,first_name,last_name,display_name,password,password_temporary,enabled,email_verified,identity_source,groups,required_actions,fullName,phone,department,manager,employeeID,onboardDate,workAddress,State,userType,companyName,userExpiryVPN
+test.local1,test.local1@mbfs.vn,,Local,One,Local One,,false,true,true,local,,,Local One,,,,,,,,partner,TEST,20/04/2026
+test.ldap1,test.ldap1@mbfs.vn,nguoi.nhan.thongbao@mbfs.vn,Ldap,One,Ldap One,,true,true,true,ldap,,,Ldap One,0987654321,Phòng Vận hành,"CN=Nguyễn Đình Trường,OU=MBFS_Users,DC=mbfs,DC=local",12345,15/04/2026,"Tòa nhà MobiFone, Hà Nội",,employee,,
