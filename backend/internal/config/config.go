@@ -14,6 +14,7 @@ type Config struct {
 	AppEnv   string
 	LogLevel string
 	HTTP     HTTPConfig
+	Database DatabaseConfig
 	Keycloak KeycloakConfig
 	OpenVPN  OpenVPNConfig
 	SMTP     SMTPConfig
@@ -26,6 +27,14 @@ type HTTPConfig struct {
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	ShutdownTimeout time.Duration
+}
+
+type DatabaseConfig struct {
+	URL             string
+	MaxOpenConns    int32
+	MinOpenConns    int32
+	MaxConnLifetime time.Duration
+	Enabled         bool
 }
 
 type KeycloakConfig struct {
@@ -108,6 +117,36 @@ func Load() (Config, error) {
 		ReadTimeout:     readTimeout,
 		WriteTimeout:    writeTimeout,
 		ShutdownTimeout: shutdownTimeout,
+	}
+
+	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	databaseMaxOpenConns, err := getInt("DATABASE_MAX_OPEN_CONNS", 10)
+	if err != nil {
+		return Config{}, err
+	}
+	databaseMinOpenConns, err := getInt("DATABASE_MIN_OPEN_CONNS", 1)
+	if err != nil {
+		return Config{}, err
+	}
+	databaseMaxConnLifetime, err := getDuration("DATABASE_MAX_CONN_LIFETIME", time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	if databaseMaxOpenConns < 0 {
+		return Config{}, fmt.Errorf("invalid int for DATABASE_MAX_OPEN_CONNS: must be greater than or equal to 0")
+	}
+	if databaseMinOpenConns < 0 {
+		return Config{}, fmt.Errorf("invalid int for DATABASE_MIN_OPEN_CONNS: must be greater than or equal to 0")
+	}
+	if databaseMaxOpenConns > 0 && databaseMinOpenConns > databaseMaxOpenConns {
+		return Config{}, fmt.Errorf("invalid database pool config: DATABASE_MIN_OPEN_CONNS must be less than or equal to DATABASE_MAX_OPEN_CONNS")
+	}
+	cfg.Database = DatabaseConfig{
+		URL:             databaseURL,
+		MaxOpenConns:    int32(databaseMaxOpenConns),
+		MinOpenConns:    int32(databaseMinOpenConns),
+		MaxConnLifetime: databaseMaxConnLifetime,
+		Enabled:         databaseURL != "",
 	}
 
 	keycloakBaseURL := os.Getenv("KEYCLOAK_BASE_URL")

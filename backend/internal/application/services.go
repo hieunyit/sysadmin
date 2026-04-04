@@ -5,4 +5,5 @@ type Services struct {
 	Group              *GroupService
 	OpenVPNAdmin       *OpenVPNAdminService
 	OpenVPNProvisioner *OpenVPNProvisioningService
+	AdminPortal        *AdminPortalService
 }

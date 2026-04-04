@@ -19,6 +19,7 @@ import (
 	"backend/internal/infrastructure/email"
 	"backend/internal/infrastructure/keycloak"
 	"backend/internal/infrastructure/openvpn"
+	"backend/internal/infrastructure/postgres"
 	transporthttp "backend/internal/transport/http"
 )
 
@@ -35,6 +36,17 @@ func main() {
 
 	keycloakClient := keycloak.New(cfg.Keycloak)
 	openvpnClient := openvpn.New(cfg.OpenVPN)
+	adminPortalStore, err := postgres.NewAdminPortalStore(context.Background(), cfg.Database)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("init admin portal store failed")
+	}
+	if adminPortalStore != nil {
+		defer adminPortalStore.Close()
+	}
+	var adminPortalService *application.AdminPortalService
+	if adminPortalStore != nil {
+		adminPortalService = application.NewAdminPortalService(adminPortalStore)
+	}
 	logSMTPProfile(logger, "primary", cfg.SMTP)
 	logSMTPProfile(logger, "ldap", cfg.SMTPLDAP)
 	emailService, err := email.New(cfg.SMTP, logger)
@@ -52,6 +64,7 @@ func main() {
 		Group:              application.NewGroupService(validate, keycloakClient),
 		OpenVPNAdmin:       application.NewOpenVPNAdminService(openvpnClient, notifications),
 		OpenVPNProvisioner: application.NewOpenVPNProvisioningService(openvpnClient, keycloakClient, notifications),
+		AdminPortal:        adminPortalService,
 	}
 
 	apiServer := transporthttp.NewServer(cfg, logger, services)

@@ -1,6 +1,8 @@
 backend/.env*
+backend/.gocache/
+backend/.gomodcache/
 .codex
-frontend/node_modules
+frontend/node_modules/
 
 # next.js
 frontend/.next/

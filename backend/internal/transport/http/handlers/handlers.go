@@ -32,6 +32,29 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/ready", h.Ready)
 
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Route("/admin", func(r chi.Router) {
+			r.Get("/dashboard", h.GetAdminDashboard)
+			r.Get("/audit-logs", h.ListAdminAuditLogs)
+
+			r.Get("/keycloak/users", h.AdminListKeycloakUsers)
+			r.Post("/keycloak/users", h.AdminKeycloakUsersAction)
+			r.Get("/keycloak/groups", h.AdminListKeycloakGroups)
+			r.Post("/keycloak/groups", h.AdminKeycloakGroupsAction)
+			r.Get("/keycloak/roles", h.AdminListKeycloakRoles)
+			r.Post("/keycloak/roles", h.AdminKeycloakRolesAction)
+			r.Get("/keycloak/sessions", h.AdminListKeycloakSessions)
+			r.Post("/keycloak/sessions", h.AdminKeycloakSessionsAction)
+
+			r.Get("/openvpn/users", h.AdminListOpenVPNUsers)
+			r.Post("/openvpn/users", h.AdminOpenVPNUsersAction)
+			r.Get("/openvpn/groups", h.AdminListOpenVPNGroups)
+			r.Post("/openvpn/groups", h.AdminOpenVPNGroupsAction)
+			r.Get("/openvpn/connections", h.AdminListOpenVPNConnections)
+			r.Post("/openvpn/connections", h.AdminOpenVPNConnectionsAction)
+			r.Get("/openvpn/configs", h.AdminListOpenVPNConfigs)
+			r.Post("/openvpn/configs", h.AdminOpenVPNConfigsAction)
+		})
+
 		r.Route("/keycloak", func(r chi.Router) {
 			r.Post("/users", h.CreateUser)
 			r.Get("/users", h.ListUsers)

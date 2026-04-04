@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"golang.org/x/oauth2/clientcredentials"
@@ -291,14 +290,14 @@ func (c *Client) lockComponentConfig() (func(), error) {
 		c.componentMu.Unlock()
 		return nil, fmt.Errorf("open component lock file failed: %w", err)
 	}
-	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+	if err := lockFileExclusive(lockFile); err != nil {
 		_ = lockFile.Close()
 		c.componentMu.Unlock()
 		return nil, fmt.Errorf("lock component lock file failed: %w", err)
 	}
 
 	return func() {
-		_ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+		_ = unlockFile(lockFile)
 		_ = lockFile.Close()
 		c.componentMu.Unlock()
 	}, nil
